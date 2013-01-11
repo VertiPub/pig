@@ -18,10 +18,11 @@
 package org.apache.pig.backend.hadoop.executionengine.shims;
 
 import java.io.IOException;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.jobcontrol.Job;
 import org.apache.hadoop.mapreduce.ContextFactory;
 import org.apache.hadoop.mapreduce.JobContext;
@@ -36,20 +37,27 @@ import org.apache.pig.backend.hadoop.executionengine.physicalLayer.relationalOpe
 
 public class HadoopShims {
     static public JobContext cloneJobContext(JobContext original) throws IOException, InterruptedException {
-        JobContext newContext = ContextFactory.cloneContext(original, original.getConfiguration());
+        JobContext newContext = ContextFactory.cloneContext(original,
+                new JobConf(original.getConfiguration()));
         return newContext;
     }
-    
-    static public TaskAttemptContext createTaskAttemptContext(Configuration conf, 
+
+    static public TaskAttemptContext createTaskAttemptContext(Configuration conf,
                                 TaskAttemptID taskId) {
-        TaskAttemptContext newContext = new TaskAttemptContextImpl(new Configuration(conf), taskId);
-        return newContext;
+        if (conf instanceof JobConf) {
+            return new TaskAttemptContextImpl(new JobConf(conf), taskId);
+        } else {
+            return new TaskAttemptContextImpl(conf, taskId);
+        }
     }
-    
-    static public JobContext createJobContext(Configuration conf, 
+
+    static public JobContext createJobContext(Configuration conf,
             JobID jobId) {
-        JobContext newContext = new JobContextImpl(new Configuration(conf), jobId);
-        return newContext;
+        if (conf instanceof JobConf) {
+            return new JobContextImpl(new JobConf(conf), jobId);
+        } else {
+            return new JobContextImpl(conf, jobId);
+        }
     }
 
     static public boolean isMap(TaskAttemptID taskAttemptID) {
@@ -85,5 +93,9 @@ public class HadoopShims {
     
     static public void commitOrCleanup(OutputCommitter oc, JobContext jc) throws IOException {
         oc.commitJob(jc);
+    }
+    
+    public static long getDefaultBlockSize(FileSystem fs, Path path) {
+        return fs.getDefaultBlockSize(path);
     }
 }

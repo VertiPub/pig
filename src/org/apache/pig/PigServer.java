@@ -252,8 +252,12 @@ public class PigServer {
     private void addJarsFromProperties() throws ExecException {
         //add jars from properties to extraJars
         String jar_str = pigContext.getProperties().getProperty("pig.additional.jars");
+
         if(jar_str != null){
-            for(String jar : jar_str.split(":")){
+            // Use File.pathSeparator (":" on Linux, ";" on Windows)
+            // to correctly handle path aggregates as they are represented
+            // on the Operating System.
+            for(String jar : jar_str.split(File.pathSeparator)){
                 try {
                     registerJar(jar);
                 } catch (IOException e) {
@@ -519,11 +523,16 @@ public class PigServer {
             throw new FrontendException(msg, errCode,
                     PigException.USER_ENVIRONMENT);
         }
+        String cwd = new File(".").getCanonicalPath();
+        String filePath = f.getCanonicalPath();
+        //Use the relative path in the jar, if the path specified is relative
+        String nameInJar = filePath.equals(cwd + File.separator + path) ? 
+                filePath.substring(cwd.length() + 1) : filePath;
+        pigContext.addScriptFile(nameInJar, filePath);
         if(scriptingLang != null) {
             ScriptEngine se = ScriptEngine.getInstance(scriptingLang);    
-            se.registerFunctions(f.getPath(), namespace, pigContext);
+            se.registerFunctions(nameInJar, namespace, pigContext);
         }
-        pigContext.addScriptFile(f.getPath());
     }
 
     /**

@@ -377,12 +377,8 @@ public class JobControlCompiler{
             if(lds!=null && lds.size()>0){
                 for (POLoad ld : lds) {
                     LoadFunc lf = ld.getLoadFunc();
-                    // Call setLocation as a hacky way of letting a LoadFunc fix up the Job.
-                    // Note that setLocation will get called on the loadFuncs later, as well.
-                    // That's ok as setLocation getting called multiple times is documented behavior.
-                    if (lf !=null) {
-                        lf.setLocation(ld.getLFile().getFileName(), nwJob);
-                    }
+                    lf.setLocation(ld.getLFile().getFileName(), nwJob);
+                    
                     //Store the inp filespecs
                     inp.add(ld.getLFile());
                     
@@ -466,13 +462,13 @@ public class JobControlCompiler{
             for (POStore st: mapStores) {
                 storeLocations.add(st);
                 StoreFuncInterface sFunc = st.getStoreFunc();
-                sFunc.setStoreLocation(st.getSFile().getFileName(), new org.apache.hadoop.mapreduce.Job(nwJob.getConfiguration()));
+                sFunc.setStoreLocation(st.getSFile().getFileName(), nwJob);
             }
 
             for (POStore st: reduceStores) {
                 storeLocations.add(st);
                 StoreFuncInterface sFunc = st.getStoreFunc();
-                sFunc.setStoreLocation(st.getSFile().getFileName(), new org.apache.hadoop.mapreduce.Job(nwJob.getConfiguration()));
+                sFunc.setStoreLocation(st.getSFile().getFileName(), nwJob);
             }
 
             // the OutputFormat we report to Hadoop is always PigOutputFormat
