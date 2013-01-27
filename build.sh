@@ -1,7 +1,7 @@
 #!/bin/sh -e
 export DATE_STRING=`date +"%Y%m%d%H%M"`
 export RPM_VERSION=0
-export RPM_NAME=`echo verticloud-pig_${VERSION}`
+export RPM_NAME=`echo vcc-pig_${VERSION}`
 echo "Building Pig Version ${VERSION} to RPM version ${RPM_VERSION}-${DATE_STRING} with RPM name ${RPM_NAME}"
 
 rm -rf ${WORKSPACE}/install-*
