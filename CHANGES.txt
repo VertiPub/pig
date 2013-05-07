@@ -18,7 +18,67 @@
 
 Pig Change Log
 
-Release 0.11.0 (unreleased)
+Release 0.11.2 (Unreleased)
+
+INCOMPATIBLE CHANGES
+
+IMPROVEMENTS
+
+OPTIMIZATIONS
+
+PIG-2769: a simple logic causes very long compiling time on pig 0.10.0 (njw45 via dvryaboy) (prev. applied to 0.12)
+
+BUG FIXES
+
+PIG-3223: AvroStorage does not handle comma separated input paths (dreambird via rohini)
+
+PIG-3281: Pig version in pig.pom is incorrect in branch-0.11 (cheolsoo)
+
+PIG-3282: Pig pom.xml does not bring in joda-time as dependency (sushanth via daijy)
+
+PIG-3262: Pig contrib 0.11 doesn't compile on certain rpm systems (mgrover via cheolsoo)
+
+PIG-3264: mvn signanddeploy target broken for pigunit, pigsmoke and piggybank (billgraham)
+
+
+Release 0.11.1
+
+INCOMPATIBLE CHANGES
+
+IMPROVEMENTS
+
+PIG-3256: Upgrade jython to 2.5.3 (legal concern) (daijy)
+
+PIG-2988: start deploying pigunit maven artifact part of Pig release process (njw45 via rohini)
+
+PIG-3148: OutOfMemory exception while spilling stale DefaultDataBag. Extra option to gc() before spilling large bag. (knoguchi via rohini)
+
+PIG-3216: Groovy UDFs documentation has minor typos (herberts via rohini)
+
+PIG-3202: CUBE operator not documented in user docs (prasanth_j via billgraham)
+
+OPTIMIZATIONS
+
+BUG FIXES
+
+PIG-3267: HCatStorer fail in limit query (daijy)
+
+PIG-3252: AvroStorage gives wrong schema for schemas with named records (mwagner via cheolsoo)
+
+PIG-3132: NPE when illustrating a relation with HCatLoader (daijy)
+
+PIG-3194: Changes to ObjectSerializer.java break compatibility with Hadoop 0.20.2 (prkommireddi via dvryaboy)
+
+PIG-3241: ConcurrentModificationException in POPartialAgg (dvryaboy)
+
+PIG-3144: Erroneous map entry alias resolution leading to "Duplicate schema alias" errors (jcoveney via cheolsoo)
+
+PIG-3212: Race Conditions in POSort and (Internal)SortedBag during Proactive Spill (kadeng via dvryaboy)
+
+PIG-3206: HBaseStorage does not work with Oozie pig action and secure HBase (rohini)
+
+
+Release 0.11.0 (2013-02-02)
 
 INCOMPATIBLE CHANGES
 
@@ -29,6 +89,10 @@ PIG-2931: $ signs in the replacement string make parameter substitution fail (ch
 PIG-1891 Enable StoreFunc to make intelligent decision based on job success or failure (initialcontext via gates)
 
 IMPROVEMENTS
+
+PIG-3140: Document PigProgressNotificationListener configs (billgraham)
+
+PIG-3139: Document reducer estimation (billgraham)
 
 PIG-2341: Need better documentation on Pig/HBase integration (jthakrar and billgraham via billgraham)
 
@@ -331,6 +395,10 @@ PIG-2337: Provide UDF with input schema (xutingz via daijy)
 OPTIMIZATIONS
 
 BUG FIXES
+
+PIG-3147: Spill failing with "java.lang.RuntimeException: InternalCachedBag.spill() should not be called (knoguchi via dvryaboy)
+
+PIG-2645: PigSplit does not handle the case where SerializationFactory returns null (shami via gates)
 
 PIG-3109: Missing license headers (jarcec via cheolsoo)
 
