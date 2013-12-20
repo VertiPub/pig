@@ -19,6 +19,8 @@
 package org.apache.pig.parser;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,10 +34,13 @@ import org.antlr.runtime.RecognitionException;
 import org.apache.pig.ExecType;
 import org.apache.pig.FuncSpec;
 import org.apache.pig.LoadFunc;
+import org.apache.pig.PigConfiguration;
 import org.apache.pig.StoreFuncInterface;
 import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.backend.hadoop.datastorage.ConfigurationUtil;
+import org.apache.pig.builtin.Assert;
 import org.apache.pig.builtin.CubeDimensions;
+import org.apache.pig.builtin.InvokerGenerator;
 import org.apache.pig.builtin.PigStorage;
 import org.apache.pig.builtin.RANDOM;
 import org.apache.pig.builtin.RollupDimensions;
@@ -56,6 +61,7 @@ import org.apache.pig.impl.util.MultiMap;
 import org.apache.pig.impl.util.StringUtils;
 import org.apache.pig.newplan.Operator;
 import org.apache.pig.newplan.OperatorPlan;
+import org.apache.pig.newplan.logical.expression.BinCondExpression;
 import org.apache.pig.newplan.logical.expression.ConstantExpression;
 import org.apache.pig.newplan.logical.expression.LessThanExpression;
 import org.apache.pig.newplan.logical.expression.LogicalExpression;
@@ -232,6 +238,7 @@ public class LogicalPlanBuilder {
     }
 
     String buildUnionOp(SourceLocation loc, String alias, List<String> inputAliases, boolean onSchema) throws ParserValidationException {
+        checkDuplicateAliases(inputAliases, loc, "UNION");
         LOUnion op = new LOUnion( plan, onSchema );
         return buildOp( loc, op, alias, inputAliases, null );
     }
@@ -312,7 +319,13 @@ public class LogicalPlanBuilder {
         }
         sort.setAscendingCols( ascFlags );
         alias = buildOp( loc, sort, alias, inputAlias, null );
-        expandAndResetVisitor(loc, sort);
+        try {
+            (new ProjectStarExpander(sort.getPlan())).visit(sort);
+            (new ProjStarInUdfExpander(sort.getPlan())).visit(sort);
+            new SchemaResetter(sort.getPlan(), true).visit(sort);
+        } catch (FrontendException e ) {
+            throw new ParserValidationException( intStream, loc, e );
+        }
         return alias;
     }
 
@@ -332,7 +345,13 @@ public class LogicalPlanBuilder {
         rank.setAscendingCol(ascFlags);
 
         buildOp( loc, rank, alias, inputAlias, null );
-        expandAndResetVisitor(loc, rank);
+        try {
+            (new ProjectStarExpander(rank.getPlan())).visit(rank);
+            (new ProjStarInUdfExpander(rank.getPlan())).visit(rank);
+            new SchemaResetter(rank.getPlan(), true).visit(rank);
+        } catch (FrontendException e ) {
+            throw new ParserValidationException( intStream, loc, e );
+        }
 
         return alias;
     }
@@ -345,6 +364,7 @@ public class LogicalPlanBuilder {
             MultiMap<Integer, LogicalExpressionPlan> joinPlans,
             JOINTYPE jt, List<Boolean> innerFlags, String partitioner)
     throws ParserValidationException {
+        checkDuplicateAliases(inputAliases, loc, "JOIN");
         if (jt==null)
             jt = JOINTYPE.HASH;
         else {
@@ -388,20 +408,16 @@ public class LogicalPlanBuilder {
         op.setInnerFlags( flags );
         op.setJoinPlans( joinPlans );
         alias = buildOp( loc, op, alias, inputAliases, partitioner );
-        expandAndResetVisitor(loc, op);
+        try {
+            (new ProjectStarExpander(op.getPlan())).visit(op);
+            (new ProjStarInUdfExpander(op.getPlan())).visit(op);
+            new SchemaResetter(op.getPlan(), true).visit(op);
+        } catch (FrontendException e ) {
+            throw new ParserValidationException( intStream, loc, e );
+        }
         return alias;
     }
 
-    private void expandAndResetVisitor(SourceLocation loc,
-	    LogicalRelationalOperator lrop) throws ParserValidationException {
-        try {
-	    (new ProjectStarExpander(lrop.getPlan())).visit();
-	    (new ProjStarInUdfExpander(lrop.getPlan())).visit();
-	    new SchemaResetter(lrop.getPlan(), true).visit();
-	} catch (FrontendException e) {
-	    throw new ParserValidationException(intStream, loc, e);
-	}
-    }
 
     LOCube createCubeOp() {
 	return new LOCube(plan);
@@ -418,7 +434,13 @@ public class LogicalPlanBuilder {
 	op.setExpressionPlans(expressionPlans);
 	op.setOperations(operations);
 	buildOp(loc, op, alias, inputAlias, null);
-	expandAndResetVisitor(loc, op);
+        try {
+            (new ProjectStarExpander(op.getPlan())).visit(op);
+            (new ProjStarInUdfExpander(op.getPlan())).visit(op);
+            new SchemaResetter(op.getPlan(), true).visit(op);
+        } catch (FrontendException e ) {
+            throw new ParserValidationException( intStream, loc, e );
+        }
 	try {
 	    alias = convertCubeToFGPlan(loc, op, inputAlias, operations, expressionPlans);
 	} catch (FrontendException e) {
@@ -545,7 +567,7 @@ public class LogicalPlanBuilder {
 		        .getFields();
 		for (int i = 0; i < fields.size(); i++) {
 		    LogicalExpressionPlan lEplan = new LogicalExpressionPlan();
-		    new ProjectExpression(lEplan, i, fields.get(i).alias, gen);
+		    new ProjectExpression(lEplan, i, fields.get(i).alias, null, gen);
 		    allExprPlan.add(lEplan);
 		}
 	    }
@@ -638,7 +660,7 @@ public class LogicalPlanBuilder {
 	// Generate and Foreach operator creation
 	String falias = null;
 	try {
-	    buildGenerateOp(loc, (LOForEach) foreach, (LOGenerate) gen, operators, allExprPlan,
+	    buildGenerateOp(loc, (LOForEach) foreach, (LOGenerate) gen, allExprPlan,
 		    flattenFlags, getUserDefinedSchema(allExprPlan));
 	    falias = buildForeachOp(loc, (LOForEach) foreach, "cube", inputAlias, innerPlan);
 	} catch (ParserValidationException pve) {
@@ -657,7 +679,7 @@ public class LogicalPlanBuilder {
 	for (LogicalExpressionPlan exp : expressionPlans.values()) {
 	    LogicalExpression lexp = (LogicalExpression) exp.getSources().get(0);
 	    LogicalExpressionPlan epGrp = new LogicalExpressionPlan();
-	    new ProjectExpression(epGrp, 0, lexp.getFieldSchema().alias, groupby);
+	    new ProjectExpression(epGrp, 0, lexp.getFieldSchema().alias, null, groupby);
 	    exprPlansCopy.put(0, epGrp);
 	}
 
@@ -814,7 +836,13 @@ public class LogicalPlanBuilder {
         op.setGroupType( gt );
         op.setInnerFlags( flags );
         alias = buildOp( loc, op, alias, inputAliases, partitioner );
-        expandAndResetVisitor(loc, op);
+        try {
+            (new ProjectStarExpander(op.getPlan())).visit(op);
+            (new ProjStarInUdfExpander(op.getPlan())).visit(op);
+            new SchemaResetter(op.getPlan(), true).visit(op);
+        } catch (FrontendException e ) {
+            throw new ParserValidationException( intStream, loc, e );
+        }
 
         return alias;
     }
@@ -824,12 +852,10 @@ public class LogicalPlanBuilder {
         String absolutePath;
         LoadFunc loFunc;
         try {
-            FuncSpec instantiatedFuncSpec =
-                    funcSpec == null ?
-                        new FuncSpec(PigStorage.class.getName()) :
-                        funcSpec;
-            loFunc = (LoadFunc)PigContext.instantiateFuncFromSpec(instantiatedFuncSpec);
-            String fileNameKey = QueryParserUtils.constructFileNameSignature(filename, instantiatedFuncSpec) + "_" + (loadIndex++);
+            // Load LoadFunc class from default properties if funcSpec is null. Fallback on PigStorage if LoadFunc is not specified in properties.
+            funcSpec = funcSpec == null ? new FuncSpec(pigContext.getProperties().getProperty(PigConfiguration.PIG_DEFAULT_LOAD_FUNC, PigStorage.class.getName())) : funcSpec;
+            loFunc = (LoadFunc)PigContext.instantiateFuncFromSpec(funcSpec);
+            String fileNameKey = QueryParserUtils.constructFileNameSignature(filename, funcSpec) + "_" + (loadIndex++);
             absolutePath = fileNameMap.get(fileNameKey);
             if (absolutePath == null) {
                 absolutePath = loFunc.relativeToAbsolutePath( filename, QueryParserUtils.getCurrentDir( pigContext ) );
@@ -851,6 +877,7 @@ public class LogicalPlanBuilder {
                 ConfigurationUtil.toConfiguration(pigContext.getProperties()),
                 loFunc,
                 alias + "_" + newOperatorKey());
+        op.setTmpLoad(false);
         return buildOp( loc, op, alias, new ArrayList<String>(), null );
     }
 
@@ -861,7 +888,27 @@ public class LogicalPlanBuilder {
             inputAliases.add( inputAlias );
         return buildOp( loc, op, alias, inputAliases, partitioner );
     }
-
+    
+    private void checkDuplicateAliases(List<String> inputAliases, SourceLocation loc, 
+    		String opName) throws ParserValidationException {
+        //Keep the count of the number of times the same Alias is used          
+        Map<Operator, Integer> inputAliasesMap = new HashMap<Operator, Integer>(); 
+        for(String a : inputAliases) {
+            Operator pred = operators.get( a );                
+    	    if (pred == null) {                                                
+    	    	throw new ParserValidationException( intStream, loc, "Unrecognized alias " + a );
+    	    }
+    	    if (inputAliasesMap.containsKey(pred)) {
+    	        throw new ParserValidationException( intStream, loc, 
+    	                "Pig does not accept same alias as input for " + opName + 
+    	                " operation : " + a );
+    	    }
+    	    else {
+                inputAliasesMap.put(pred, 1);
+            }
+        }
+    }
+    
     private String buildOp(SourceLocation loc, LogicalRelationalOperator op, String alias,
     		List<String> inputAliases, String partitioner) throws ParserValidationException {
         setAlias( op, alias );
@@ -883,12 +930,9 @@ public class LogicalPlanBuilder {
     String buildStoreOp(SourceLocation loc, String alias, String inputAlias, String filename, FuncSpec funcSpec)
     throws ParserValidationException {
         try {
-            FuncSpec instantiatedFuncSpec =
-                    funcSpec == null ?
-                            new FuncSpec(PigStorage.class.getName()):
-                            funcSpec;
-
-            StoreFuncInterface stoFunc = (StoreFuncInterface)PigContext.instantiateFuncFromSpec(instantiatedFuncSpec);
+            // Load StoreFunc class from default properties if funcSpec is null. Fallback on PigStorage if StoreFunc is not specified in properties.
+            funcSpec = funcSpec == null ? new FuncSpec(pigContext.getProperties().getProperty(PigConfiguration.PIG_DEFAULT_STORE_FUNC, PigStorage.class.getName())) : funcSpec;
+            StoreFuncInterface stoFunc = (StoreFuncInterface)PigContext.instantiateFuncFromSpec(funcSpec);
             String fileNameKey = inputAlias + "_" + (storeIndex++) ;
 
             String signature = inputAlias + "_" + newOperatorKey();
@@ -912,6 +956,29 @@ public class LogicalPlanBuilder {
             throw new ParserValidationException(intStream, loc, ex);
         }
     }
+    
+    String buildAssertOp(SourceLocation loc, LOFilter filterOp, 
+            String alias, String inputAlias, LogicalExpression expr, String comment,
+            LogicalExpressionPlan exprPlan) 
+            throws ParserValidationException {
+        try {
+            filterOp.setAlias(inputAlias);
+            List<LogicalExpression> args = new ArrayList<LogicalExpression>();
+            ConstantExpression lhs = new ConstantExpression(exprPlan, new Boolean(true));
+            ConstantExpression rhs = new ConstantExpression(exprPlan, new Boolean(false));
+            BinCondExpression binCond = new BinCondExpression(exprPlan, expr, lhs, rhs);
+            args.add(binCond);
+            ConstantExpression constExpr = new ConstantExpression(exprPlan, comment);
+            args.add(constExpr);
+            UserFuncExpression udf = new UserFuncExpression(exprPlan, new FuncSpec( Assert.class.getName() ), args );
+            exprPlan.add(udf);
+            filterOp.setFilterPlan(exprPlan);
+            // pass the inputAlias to alias
+            return buildFilterOp(loc, filterOp, inputAlias, inputAlias, exprPlan);
+        } catch (Exception ex) {
+            throw new ParserValidationException(intStream, loc, ex);
+        }
+    }
 
     private String newOperatorKey() {
         return new OperatorKey( scope, getNextId() ).toString();
@@ -929,7 +996,13 @@ public class LogicalPlanBuilder {
     throws ParserValidationException {
         op.setInnerPlan( innerPlan );
         alias = buildOp( loc, op, alias, inputAlias, null );
-        expandAndResetVisitor(loc, op);
+        try {
+            (new ProjectStarExpander(op.getPlan())).visit(op);
+            (new ProjStarInUdfExpander(op.getPlan())).visit(op);
+            new SchemaResetter(op.getPlan(), true).visit(op);
+        } catch (FrontendException e ) {
+            throw new ParserValidationException( intStream, loc, e );
+        }
         return alias;
     }
 
@@ -938,7 +1011,6 @@ public class LogicalPlanBuilder {
     }
 
     void buildGenerateOp(SourceLocation loc, LOForEach foreach, LOGenerate gen,
-            Map<String, Operator> operators,
             List<LogicalExpressionPlan> exprPlans, List<Boolean> flattenFlags,
             List<LogicalSchema> schemas)
     throws ParserValidationException {
@@ -963,7 +1035,7 @@ public class LogicalPlanBuilder {
             }
             idx++;
             try {
-                processExpressionPlan( foreach, innerPlan, exprPlan, operators, inputs );
+                processExpressionPlan( foreach, innerPlan, exprPlan, inputs );
             } catch (FrontendException e) {
                 throw new ParserValidationException(intStream, loc, e);
             }
@@ -985,14 +1057,12 @@ public class LogicalPlanBuilder {
      * @param foreach
      * @param lp Logical plan in which the LOGenerate is in
      * @param plan One of the output expression of the LOGenerate
-     * @param operators All logical operators in lp;
      * @param inputs  inputs of the LOGenerate
      * @throws FrontendException
      */
     private static void processExpressionPlan(LOForEach foreach,
                                       LogicalPlan lp,
                                       LogicalExpressionPlan plan,
-                                      Map<String, Operator> operators,
                                       ArrayList<Operator> inputs ) throws FrontendException {
         Iterator<Operator> it = plan.getOperators();
         while( it.hasNext() ) {
@@ -1007,10 +1077,9 @@ public class LogicalPlanBuilder {
                             new ProjectExpression(projExpr, new LogicalExpressionPlan())
                     );
                     setupInnerLoadAndProj(innerLoad, projExpr, lp, inputs);
-                }
-                else if( colAlias != null ) {
+                } else if( colAlias != null ) {
                     // the project is using a column alias
-                    Operator op = operators.get( colAlias );
+                    Operator op = projExpr.getProjectedOperator();
                     if( op != null ) {
                         // this means the project expression refers to a relation
                         // in the nested foreach
@@ -1235,6 +1304,16 @@ public class LogicalPlanBuilder {
         return Long.parseLong( num );
     }
 
+    static BigInteger parseBigInteger(String s) {
+        String num = s.substring( 0, s.length() - 1 );
+        return new BigInteger( num );
+    }
+
+    static BigDecimal parseBigDecimal(String s) {
+        String num = s.substring( 0, s.length() - 1 );
+        return new BigDecimal( num );
+    }
+
     static Tuple buildTuple(List<Object> objList) {
         TupleFactory tf = TupleFactory.getInstance();
         return tf.newTuple( objList );
@@ -1252,7 +1331,7 @@ public class LogicalPlanBuilder {
      * @throws RecognitionException
      */
     LogicalExpression buildProjectExpr(SourceLocation loc, LogicalExpressionPlan plan, LogicalRelationalOperator op,
-            Map<String, LogicalExpressionPlan> exprPlans, String colAlias, int col)
+    		Map<String, Operator> operators, Map<String, LogicalExpressionPlan> exprPlans, String colAlias, int col)
     throws RecognitionException {
         ProjectExpression result = null;
 
@@ -1291,7 +1370,7 @@ public class LogicalPlanBuilder {
                 }
                 return root;
             } else {
-                result = new ProjectExpression( plan, 0, colAlias, op );
+                result = new ProjectExpression( plan, 0, colAlias, operators.get( colAlias ), op );
                 result.setLocation( loc );
                 return result;
             }
@@ -1311,7 +1390,7 @@ public class LogicalPlanBuilder {
     throws ParserValidationException {
         ProjectExpression result = null;
         result = colAlias != null ?
-            new ProjectExpression( plan, input, colAlias, relOp ) :
+            new ProjectExpression( plan, input, colAlias, null, relOp ) :
             new ProjectExpression( plan, input, col, relOp );
         result.setLocation( loc );
         return result;
@@ -1399,6 +1478,34 @@ public class LogicalPlanBuilder {
             throw new ParserValidationException(intStream, loc, msg);
         }
 
+    }
+
+    LogicalExpression buildInvokerUDF(SourceLocation loc, LogicalExpressionPlan plan, String packageName, String funcName, boolean isStatic, List<LogicalExpression> args) throws RecognitionException {
+        LogicalExpression le = new UserFuncExpression(plan, new FuncSpec(InvokerGenerator.class.getName()), args, false, true, isStatic, packageName, funcName);
+        le.setLocation(loc);
+        return le;
+    }
+
+    public static Class<?> typeToClass(Class<?> clazz) {
+        if (clazz == Integer.TYPE) {
+            return Integer.class;
+        } else if (clazz == Long.TYPE) {
+            return Long.class;
+        } else if (clazz == Float.TYPE) {
+            return Long.class;
+        } else if (clazz == Double.TYPE) {
+            return Long.class;
+        } else if (clazz == Boolean.TYPE) {
+            return Long.class;
+        } else if (clazz == Short.TYPE) {
+            return Short.class;
+        } else if (clazz == Byte.TYPE) {
+            return Byte.class;
+        } else if (clazz == Character.TYPE) {
+            return Character.class;
+        } else {
+            throw new RuntimeException("Was not given a primitive TYPE class: " + clazz);
+        }
     }
 
     LogicalExpression buildUDF(SourceLocation loc, LogicalExpressionPlan plan,
@@ -1645,5 +1752,9 @@ public class LogicalPlanBuilder {
       }
       return lastRel;
   }
+
+    public String getLastRel() {
+        return lastRel;
+    }
 
 }

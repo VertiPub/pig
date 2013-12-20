@@ -147,7 +147,7 @@ public class TestUnion {
         ld3.setLFile(fSpec);
         DataBag fullBag = DefaultBagFactory.getInstance().newDefaultBag();
         Tuple t=null;
-        for(Result res=ld3.getNext(t);res.returnStatus!=POStatus.STATUS_EOP;res=ld3.getNext(t)){
+        for(Result res=ld3.getNextTuple();res.returnStatus!=POStatus.STATUS_EOP;res=ld3.getNextTuple()){
             fullBag.add((Tuple)res.result);
         }
 
@@ -168,7 +168,7 @@ public class TestUnion {
     public void testGetNextTuple() throws ExecException, IOException {
         Tuple t = null;
         DataBag outBag = DefaultBagFactory.getInstance().newDefaultBag();
-        for(Result res=sp.getNext(t);res.returnStatus!=POStatus.STATUS_EOP;res=sp.getNext(t)){
+        for(Result res=sp.getNextTuple();res.returnStatus!=POStatus.STATUS_EOP;res=sp.getNextTuple()){
             outBag.add(castToDBA((Tuple)res.result));
         }
         assertTrue(TestHelper.compareBags(expBag, outBag));
@@ -198,10 +198,10 @@ public class TestUnion {
         File f2 = Util.createInputFile("tmp", "b.txt", new String[] {"7\t8\t9", "1\t200\t300"});
         File f3 = Util.createInputFile("tmp", "c.txt", new String[] {"1\t20\t30"});
         //FileLocalizer.deleteTempFiles();
-        pigServer.registerQuery("a = load '" + f1.getAbsolutePath() + "' ;");
-        pigServer.registerQuery("b = load '" + f2.getAbsolutePath() + "';");
+        pigServer.registerQuery("a = load '" + Util.encodeEscape(f1.getAbsolutePath()) + "' ;");
+        pigServer.registerQuery("b = load '" + Util.encodeEscape(f2.getAbsolutePath()) + "';");
         pigServer.registerQuery("c = union a, b;");
-        pigServer.registerQuery("d = load '" + f3.getAbsolutePath() + "' ;");
+        pigServer.registerQuery("d = load '" + Util.encodeEscape(f3.getAbsolutePath()) + "' ;");
         pigServer.registerQuery("e = cogroup c by $0 inner, d by $0 inner;");
         pigServer.explain("e", System.err);
         // output should be
@@ -225,8 +225,8 @@ public class TestUnion {
     public void testSchemaMergeWithBag() throws Exception {
         File f1 = Util.createInputFile("tmp", "input1.txt", new String[] {"dummy"});
         File f2 = Util.createInputFile("tmp", "input2.txt", new String[] {"dummy"});
-        Util.registerMultiLineQuery(pigServer, "a = load '" + f1.getAbsolutePath() + "';" +
-        		"b = load '" + f2.getAbsolutePath() + "';" +
+        Util.registerMultiLineQuery(pigServer, "a = load '" + Util.encodeEscape(f1.getAbsolutePath()) + "';" +
+        		"b = load '" + Util.encodeEscape(f2.getAbsolutePath()) + "';" +
         		"c = foreach a generate 1, {(1, 'str1')};" +
         		"d = foreach b generate 2, {(2, 'str2')};" +
         		"e = union c,d;" +
@@ -260,8 +260,8 @@ public class TestUnion {
         File f2 = Util.createInputFile("tmp", "i2.txt", new String[] {"bbb\t222"});
 
         PigServer ps = new PigServer(ExecType.LOCAL, new Properties());
-        ps.registerQuery("A = load '" + f1.getAbsolutePath() + "' as (a,b);");
-        ps.registerQuery("B = load '" + f2.getAbsolutePath() + "' as (a,b);");
+        ps.registerQuery("A = load '" + Util.encodeEscape(f1.getAbsolutePath()) + "' as (a,b);");
+        ps.registerQuery("B = load '" + Util.encodeEscape(f2.getAbsolutePath()) + "' as (a,b);");
         ps.registerQuery("C = union A,B;");
         ps.registerQuery("D = foreach C generate (chararray)a as a,(int)b as b;");
 
@@ -278,4 +278,94 @@ public class TestUnion {
         assertEquals(2, recordCount);
 
     }
+    @Test
+    public void testCastingAfterUnionWithMultipleLoadersDifferentCasters()
+        throws Exception {
+        // Note that different caster case only works when each field is still coming
+        // from the single Loader.
+        // In the case below, 'a' is coming from A(PigStorage)
+        // and 'b' is coming from B(TextLoader). No overlaps.
+        File f1 = Util.createInputFile("tmp", "i1.txt", new String[] {"1","2","3"});
+        File f2 = Util.createInputFile("tmp", "i2.txt", new String[] {"a","b","c"});
+
+        PigServer ps = new PigServer(ExecType.LOCAL, new Properties());
+        //PigStorage and TextLoader have different LoadCasters
+        ps.registerQuery("A = load '" + f1.getAbsolutePath() + "' as (a:bytearray);");
+        ps.registerQuery("B = load '" + f2.getAbsolutePath() + "' using TextLoader() as (b:bytearray);");
+        ps.registerQuery("C = union onschema A,B;");
+        ps.registerQuery("D = foreach C generate (int)a as a,(chararray)b as b;");
+
+        Schema dumpSchema = ps.dumpSchema("D");
+        Schema expected = new Schema ();
+        expected.add(new Schema.FieldSchema("a", DataType.INTEGER));
+        expected.add(new Schema.FieldSchema("b", DataType.CHARARRAY));
+        assertEquals(expected, dumpSchema);
+
+        Iterator<Tuple> itr = ps.openIterator("D");
+        int recordCount = 0;
+        while(itr.next() != null)
+            ++recordCount;
+        assertEquals(6, recordCount);
+
+    }
+
+    @Test
+    public void testCastingAfterUnionWithMultipleLoadersDifferentCasters2()
+        throws Exception {
+        // A bit more complicated pattern but still same requirement of each
+        // field coming from the same Loader.
+        // 'a' is coming from A(PigStorage)
+        // 'i' is coming from B and C but both from the TextLoader.
+        File f1 = Util.createInputFile("tmp", "i1.txt", new String[] {"b","c", "1", "3"});
+        File f2 = Util.createInputFile("tmp", "i2.txt", new String[] {"a","b","c"});
+        File f3 = Util.createInputFile("tmp", "i3.txt", new String[] {"1","2","3"});
+
+        PigServer ps = new PigServer(ExecType.LOCAL, new Properties());
+        ps.registerQuery("A = load '" + f1.getAbsolutePath() + "' as (a:bytearray);"); // Using PigStorage()
+        ps.registerQuery("B = load '" + f2.getAbsolutePath() + "' using TextLoader() as (i:bytearray);");
+        ps.registerQuery("C = load '" + f3.getAbsolutePath() + "' using TextLoader() as (i:bytearray);");
+        ps.registerQuery("B2 = join B by i, A by a;");              //{A::a: bytearray,B::i: bytearray}
+        ps.registerQuery("B3 = foreach B2 generate a, B::i as i;"); //{A::a: bytearray,i: bytearray}
+        ps.registerQuery("C2 = join C by i, A by a;");              //{A::a: bytearray,C::i: bytearray}
+        ps.registerQuery("C3 = foreach C2 generate a, C::i as i;"); //{A::a: bytearray,i: bytearray}
+        ps.registerQuery("D = union onschema B3,C3;");              // {A::a: bytearray,i: bytearray}
+        ps.registerQuery("E = foreach D generate (chararray) a, (chararray) i;");//{A::a: chararray,i: chararray}
+        Iterator<Tuple> itr = ps.openIterator("E");
+        int recordCount = 0;
+        while(itr.next() != null)
+            ++recordCount;
+        assertEquals(4, recordCount);
+
+    }
+
+    @Test
+    public void testCastingAfterUnionWithMultipleLoadersSameCaster()
+        throws Exception {
+        // Fields coming from different loaders but
+        // having the same LoadCaster.
+        File f1 = Util.createInputFile("tmp", "i1.txt", new String[] {"1\ta","2\tb","3\tc"});
+        PigServer ps = new PigServer(ExecType.LOCAL, new Properties());
+        // PigStorage and PigStorageWithStatistics have the same
+        // LoadCaster(== Utf8StorageConverter)
+        ps.registerQuery("A = load '" + f1.getAbsolutePath() + "' as (a:bytearray, b:bytearray);");
+        ps.registerQuery("B = load '" + f1.getAbsolutePath() +
+          "' using org.apache.pig.test.PigStorageWithStatistics() as (a:bytearray, b:bytearray);");
+        ps.registerQuery("C = union onschema A,B;");
+        ps.registerQuery("D = foreach C generate (int)a as a,(chararray)b as b;");
+        // 'a' is coming from A and 'b' is coming from B; No overlaps.
+
+        Schema dumpSchema = ps.dumpSchema("D");
+        Schema expected = new Schema ();
+        expected.add(new Schema.FieldSchema("a", DataType.INTEGER));
+        expected.add(new Schema.FieldSchema("b", DataType.CHARARRAY));
+        assertEquals(expected, dumpSchema);
+
+        Iterator<Tuple> itr = ps.openIterator("D");
+        int recordCount = 0;
+        while(itr.next() != null)
+            ++recordCount;
+        assertEquals(6, recordCount);
+
+    }
+
 }

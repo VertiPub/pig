@@ -23,10 +23,8 @@ import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.POStatus;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.Result;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.plans.PhyPlanVisitor;
-import org.apache.pig.data.DataBag;
 import org.apache.pig.data.DataType;
 import org.apache.pig.data.NonSpillableDataBag;
-import org.apache.pig.impl.plan.NodeIdGenerator;
 import org.apache.pig.impl.plan.OperatorKey;
 import org.apache.pig.impl.plan.VisitorException;
 
@@ -103,7 +101,7 @@ public class PORelationToExprProject extends POProject {
     }
     
     @Override
-    public Result getNext(DataBag db) throws ExecException {
+    public Result getNextDataBag() throws ExecException {
         Result input = processInputBag();
         
         // if this is called during accumulation, it is ok to have an empty bag
@@ -113,7 +111,9 @@ public class PORelationToExprProject extends POProject {
         }
         
         if(input.returnStatus!=POStatus.STATUS_OK) {
-            if(input.returnStatus == POStatus.STATUS_EOP && sendEmptyBagOnEOP)  {
+            if(input.returnStatus == POStatus.STATUS_NULL){
+                return input;
+            } else if (input.returnStatus == POStatus.STATUS_EOP && sendEmptyBagOnEOP)  {
                 // we received an EOP from the predecessor
                 // since the successor in the pipeline is
                 // expecting a bag, send an empty bag

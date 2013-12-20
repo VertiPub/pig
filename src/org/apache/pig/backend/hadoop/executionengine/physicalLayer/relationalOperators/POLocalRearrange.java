@@ -26,9 +26,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.pig.PigException;
 import org.apache.pig.backend.executionengine.ExecException;
-import org.apache.pig.data.DataType;
-import org.apache.pig.data.Tuple;
-import org.apache.pig.data.TupleFactory;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.POStatus;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.PhysicalOperator;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.Result;
@@ -36,11 +33,14 @@ import org.apache.pig.backend.hadoop.executionengine.physicalLayer.expressionOpe
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.expressionOperators.POProject;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.plans.PhyPlanVisitor;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.plans.PhysicalPlan;
+import org.apache.pig.data.DataType;
+import org.apache.pig.data.Tuple;
+import org.apache.pig.data.TupleFactory;
 import org.apache.pig.impl.io.PigNullableWritable;
-import org.apache.pig.impl.plan.OperatorKey;
 import org.apache.pig.impl.plan.NodeIdGenerator;
-import org.apache.pig.impl.plan.VisitorException;
+import org.apache.pig.impl.plan.OperatorKey;
 import org.apache.pig.impl.plan.PlanException;
+import org.apache.pig.impl.plan.VisitorException;
 import org.apache.pig.pen.util.ExampleTuple;
 
 /**
@@ -255,7 +255,7 @@ public class POLocalRearrange extends PhysicalOperator {
      * format, i.e, (key,indexedTuple(value))
      */
     @Override
-    public Result getNext(Tuple t) throws ExecException {
+    public Result getNextTuple() throws ExecException {
 
         Result inp = null;
         Result res = ERR_RESULT;
@@ -296,19 +296,20 @@ public class POLocalRearrange extends PhysicalOperator {
                 case DataType.FLOAT:
                 case DataType.INTEGER:
                 case DataType.LONG:
+                case DataType.BIGINTEGER:
+                case DataType.BIGDECIMAL:
                 case DataType.DATETIME:
                 case DataType.MAP:
                 case DataType.TUPLE:
-                    res = op.getNext(getDummy(op.getResultType()), op.getResultType());
+                    res = op.getNext(op.getResultType());
                     break;
                 default:
                     log.error("Invalid result type: " + DataType.findType(op.getResultType()));
                     break;
                 }
 
-                // allow null as group by key
-                if (res.returnStatus != POStatus.STATUS_OK && res.returnStatus != POStatus.STATUS_NULL) {
-                    return new Result();
+                if (res.returnStatus != POStatus.STATUS_OK) {
+                    return res;
                 }
 
                 resLst.add(res);
@@ -324,13 +325,15 @@ public class POLocalRearrange extends PhysicalOperator {
                     case DataType.BYTEARRAY:
                     case DataType.CHARARRAY:
                     case DataType.DOUBLE:
+                    case DataType.BIGINTEGER:
+                    case DataType.BIGDECIMAL:
                     case DataType.FLOAT:
                     case DataType.INTEGER:
                     case DataType.LONG:
                     case DataType.DATETIME:
                     case DataType.MAP:
                     case DataType.TUPLE:
-                        res = op.getNext(getDummy(op.getResultType()), op.getResultType());
+                        res = op.getNext(op.getResultType());
                         break;
                     default:
                         log.error("Invalid result type: " + DataType.findType(op.getResultType()));
@@ -743,7 +746,7 @@ public class POLocalRearrange extends PhysicalOperator {
     public boolean isKeyTuple() {
         return isKeyTuple;
     }
-    
+
     /**
      * @return the isKeyCompound
      */

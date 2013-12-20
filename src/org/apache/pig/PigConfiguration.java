@@ -81,4 +81,62 @@ public class PigConfiguration {
      * will be set in the environment.
      */
     public static final String PIG_STREAMING_ENVIRONMENT = "pig.streaming.environment";
+    
+    /**
+     * This key is used to define the default load func. Pig will fallback on PigStorage
+     * as default in case this is undefined.
+     */
+    public static final String PIG_DEFAULT_LOAD_FUNC = "pig.default.load.func";
+    
+    /**
+     * This key is used to define the default store func. Pig will fallback on PigStorage
+     * as default in case this is undefined.
+     */
+    public static final String PIG_DEFAULT_STORE_FUNC = "pig.default.store.func";
+
+    /**
+     * This key is used to define whether to support recovery to handle the
+     * application master getting restarted.
+     */
+    public static final String PIG_OUTPUT_COMMITTER_RECOVERY = "pig.output.committer.recovery.support";
+
+    /**
+     * This key is used to turn off the inclusion of settings in the jobs.
+     */
+    public static final String INSERT_ENABLED = "pig.script.info.enabled";
+
+    /**
+     * Controls the size of Pig script stored in job xml.
+     */
+    public static final String MAX_SCRIPT_SIZE = "pig.script.max.size";
+
+   /**
+     * This key is used to define whether to have intermediate file compressed
+     */
+    public static final String PIG_ENABLE_TEMP_FILE_COMPRESSION = "pig.tmpfilecompression";
+
+    /**
+     * This key is used to set the storage type used by intermediate file storage
+     * If pig.tmpfilecompression, default storage used is TFileStorage.
+     * This can be overriden to use SequenceFileInterStorage by setting following property to "seqfile".
+     */
+    public static final String PIG_TEMP_FILE_COMPRESSION_STORAGE = "pig.tmpfilecompression.storage";
+
+    /**
+     * Compression codec used by intermediate storage
+     * TFileStorage only support gzip and lzo.
+     */
+    public static final String PIG_TEMP_FILE_COMPRESSION_CODEC = "pig.tmpfilecompression.codec";
+
+    /**
+     * This key is used to define whether to delete intermediate files of Hadoop jobs.
+     */
+    public static final String PIG_DELETE_TEMP_FILE = "pig.delete.temp.files";
+
+    /**
+      * This key used to control the maximum size loaded into
+      * the distributed cache when doing fragment-replicated join
+      */
+    public static final String PIG_JOIN_REPLICATED_MAX_BYTES = "pig.join.replicated.max.bytes";
 }
+

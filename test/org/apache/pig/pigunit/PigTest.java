@@ -18,10 +18,10 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringReader;
-import java.io.StringWriter;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.Charset;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -34,10 +34,10 @@ import org.apache.pig.ExecType;
 import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.data.DataType;
 import org.apache.pig.data.Tuple;
+import org.apache.pig.impl.PigContext;
 import org.apache.pig.impl.io.FileLocalizer;
 import org.apache.pig.impl.logicalLayer.schema.Schema;
 import org.apache.pig.pigunit.pig.PigServer;
-import org.apache.pig.tools.parameters.ParameterSubstitutionPreprocessor;
 import org.apache.pig.tools.parameters.ParseException;
 
 /**
@@ -153,13 +153,12 @@ public class PigTest {
   protected void registerScript() throws IOException, ParseException {
     getCluster();
 
-    BufferedReader pigIStream = new BufferedReader(new StringReader(this.originalTextPigScript));
-    StringWriter pigOStream = new StringWriter();
+    BufferedReader reader = new BufferedReader(new StringReader(this.originalTextPigScript));
+    PigContext context = getPigServer().getPigContext();
 
-    ParameterSubstitutionPreprocessor ps = new ParameterSubstitutionPreprocessor(50);
-    ps.genSubstitutedFile(pigIStream, pigOStream, args, argFiles);
-
-    String substitutedPig = pigOStream.toString();
+    String substitutedPig = context.doParamSubstitution(reader,
+                                                        args == null ? null : Arrays.asList(args),
+                                                        argFiles == null ? null : Arrays.asList(argFiles));
     LOG.info(substitutedPig);
 
     File f = File.createTempFile("tmp", "pigunit");
@@ -193,6 +192,14 @@ public class PigTest {
     registerScript();
     return getPigServer().openIterator(alias);
   }
+  
+  /**
+   * Gets an iterator on the content of one alias of a cached script. The script itself
+   * must be already be registered with registerScript().
+   */
+  private Iterator<Tuple> getAliasFromCache(String alias) throws IOException, ParseException {
+    return getPigServer().openIterator(alias);
+  }
 
   /**
    * Gets an iterator on the content of the latest STORE alias of the script.
@@ -204,7 +211,7 @@ public class PigTest {
     registerScript();
     String alias = aliasOverrides.get("LAST_STORE_ALIAS");
 
-    return getAlias(alias);
+    return getAliasFromCache(alias);
   }
 
   /**
@@ -235,29 +242,34 @@ public class PigTest {
     registerScript();
     String alias = aliasOverrides.get("LAST_STORE_ALIAS");
 
-    assertEquals(StringUtils.join(expected, "\n"), StringUtils.join(getAlias(alias), "\n"));
+    assertEquals(StringUtils.join(expected, "\n"), StringUtils.join(getAliasFromCache(alias), "\n"));
   }
 
   public void assertOutput(String alias, String[] expected) throws IOException, ParseException {
     registerScript();
 
-    assertEquals(StringUtils.join(expected, "\n"), StringUtils.join(getAlias(alias), "\n"));
+    assertEquals(StringUtils.join(expected, "\n"), StringUtils.join(getAliasFromCache(alias), "\n"));
   }
 
   public void assertOutput(File expected) throws IOException, ParseException {
     registerScript();
     String alias = aliasOverrides.get("LAST_STORE_ALIAS");
 
-    assertEquals(readFile(expected), StringUtils.join(getAlias(alias), "\n"));
+    assertEquals(readFile(expected).replaceAll("\r\n", "\n"), StringUtils.join(getAliasFromCache(alias), "\n"));
   }
 
   public void assertOutput(String alias, File expected) throws IOException, ParseException {
     registerScript();
 
-    assertEquals(readFile(expected), StringUtils.join(getAlias(alias), "\n"));
+    assertEquals(readFile(expected).replaceAll("\r\n", "\n"), StringUtils.join(getAliasFromCache(alias), "\n"));
   }
 
   public void assertOutput(String aliasInput, String[] input, String alias, String[] expected)
+      throws IOException, ParseException {
+    assertOutput(aliasInput, input, alias, expected, "\\t");
+  }
+
+  public void assertOutput(String aliasInput, String[] input, String alias, String[] expected, String delimiter)
       throws IOException, ParseException {
     registerScript();
 
@@ -267,7 +279,7 @@ public class PigTest {
     final String destination = FileLocalizer.getTemporaryPath(getPigServer().getPigContext()).toString();
     getCluster().copyFromLocalFile(input, destination, true);
     override(aliasInput,
-        String.format("%s = LOAD '%s' AS %s;", aliasInput, destination, sb.toString()));
+        String.format("%s = LOAD '%s' USING PigStorage('%s') AS %s;", aliasInput, destination, delimiter, sb.toString()));
 
     assertOutput(alias, expected);
   }

@@ -188,9 +188,11 @@ public class POSort extends PhysicalOperator {
             case DataType.BOOLEAN:
             case DataType.INTEGER:
             case DataType.LONG:
+            case DataType.BIGINTEGER:
+            case DataType.BIGDECIMAL:
             case DataType.DATETIME:
             case DataType.TUPLE:
-                res = Op.getNext(getDummy(resultType), resultType);
+                res = Op.getNext(resultType);
                 break;
 
             default: {
@@ -219,7 +221,7 @@ public class POSort extends PhysicalOperator {
 			Integer i = null;
 			Result res = null;
 			try {
-				res = mSortFunc.getNext(i);
+				res = mSortFunc.getNextInteger();
 			} catch (ExecException e) {
 
 				log.error("Input not ready. Error on reading from input. "
@@ -249,7 +251,7 @@ public class POSort extends PhysicalOperator {
 	}
 
 	@Override
-	public Result getNext(Tuple t) throws ExecException {
+	public Result getNextTuple() throws ExecException {
 		Result res = new Result();
 
 		if (!inputsAccumulated) {
@@ -266,20 +268,18 @@ public class POSort extends PhysicalOperator {
     	    	sortedBag = new InternalSortedBag(3, mComparator);
     	    }
 
-			while (res.returnStatus != POStatus.STATUS_EOP) {
+            while (res.returnStatus != POStatus.STATUS_EOP) {
 				if (res.returnStatus == POStatus.STATUS_ERR) {
 					log.error("Error in reading from the inputs");
 					return res;
-					//continue;
-				} else if (res.returnStatus == POStatus.STATUS_NULL) {
-                    // ignore the null, read the next tuple.
+                } else if (res.returnStatus == POStatus.STATUS_NULL) {
+                    // Ignore and read the next tuple.
                     res = processInput();
-					continue;
-				}
+                    continue;
+                }
 				sortedBag.add((Tuple) res.result);
 				res = processInput();
-
-			}
+            }
 
 			inputsAccumulated = true;
 
@@ -376,7 +376,7 @@ public class POSort extends PhysicalOperator {
             requestedParallelism, null, clonePlans, cloneAsc, cloneFunc);
     }
 
-   
+
     public Tuple illustratorMarkup(Object in, Object out, int eqClassIndex) {
         if(illustrator != null) {
           illustrator.getEquivalenceClasses().get(eqClassIndex).add((Tuple) in);

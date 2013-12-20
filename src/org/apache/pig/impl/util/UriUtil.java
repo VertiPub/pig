@@ -17,14 +17,11 @@
  */
 package org.apache.pig.impl.util;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 public class UriUtil {
     public static boolean isHDFSFile(String uri){
         if(uri == null)
             return false;
-        if(uri.startsWith("/") || uri.startsWith("hdfs:")){
+        if(uri.startsWith("/") || uri.startsWith("hdfs:") || uri.startsWith("viewfs:")) {
             return true;
         }
         return false;
@@ -33,7 +30,8 @@ public class UriUtil {
     public static boolean isHDFSFileOrLocalOrS3N(String uri){
         if(uri == null)
             return false;
-        if(uri.startsWith("/") || uri.startsWith("hdfs:") || uri.startsWith("file:") || uri.startsWith("s3n:")){
+        if(uri.startsWith("/") || uri.matches("[A-Za-z]:.*") || uri.startsWith("hdfs:")
+                || uri.startsWith("viewfs:") || uri.startsWith("file:") || uri.startsWith("s3n:")) {
             return true;
         }
         return false;

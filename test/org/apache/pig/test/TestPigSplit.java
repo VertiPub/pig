@@ -29,6 +29,7 @@ import java.util.Iterator;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.pig.ExecType;
+import org.apache.pig.ExecTypeProvider;
 import org.apache.pig.PigServer;
 import org.apache.pig.data.Tuple;
 import org.junit.After;
@@ -60,7 +61,7 @@ public class TestPigSplit {
     public void setUp() throws Exception {
         String execTypeString = System.getProperty("test.exectype");
         if (execTypeString != null && execTypeString.length() > 0) {
-            execType = ExecType.fromString(execTypeString);
+            execType = ExecTypeProvider.fromString(execTypeString);
         }
         if (execType == MAPREDUCE) {
             cluster = MiniCluster.buildCluster();
@@ -108,7 +109,7 @@ public class TestPigSplit {
         createInput(new String[] { "0\ta" });
 
         pigServer.registerQuery("a = load '" + inputFileName + "';");
-        for (int i = 0; i < 500; i++) {
+        for (int i = 0; i < 200; i++) {
             pigServer.registerQuery("a = filter a by $0 == '1';");
         }
         Iterator<Tuple> iter = pigServer.openIterator("a");

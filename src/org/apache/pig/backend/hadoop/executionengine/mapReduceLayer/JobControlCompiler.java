@@ -33,6 +33,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -47,7 +49,6 @@ import org.apache.hadoop.io.WritableComparator;
 import org.apache.hadoop.mapred.Counters;
 import org.apache.hadoop.mapred.Counters.Counter;
 import org.apache.hadoop.mapred.Counters.Group;
-import org.apache.hadoop.mapred.JobClient;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.JobPriority;
 import org.apache.hadoop.mapred.jobcontrol.Job;
@@ -55,6 +56,7 @@ import org.apache.hadoop.mapred.jobcontrol.JobControl;
 import org.apache.pig.ComparisonFunc;
 import org.apache.pig.ExecType;
 import org.apache.pig.LoadFunc;
+import org.apache.pig.PigConfiguration;
 import org.apache.pig.PigException;
 import org.apache.pig.StoreFuncInterface;
 import org.apache.pig.backend.executionengine.ExecException;
@@ -76,6 +78,7 @@ import org.apache.pig.backend.hadoop.executionengine.physicalLayer.relationalOpe
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.relationalOperators.POStore;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.util.PlanHelper;
 import org.apache.pig.backend.hadoop.executionengine.shims.HadoopShims;
+import org.apache.pig.backend.hadoop.executionengine.util.MapRedUtil;
 import org.apache.pig.data.BagFactory;
 import org.apache.pig.data.DataType;
 import org.apache.pig.data.SchemaTupleFrontend;
@@ -84,6 +87,8 @@ import org.apache.pig.data.TupleFactory;
 import org.apache.pig.impl.PigContext;
 import org.apache.pig.impl.io.FileLocalizer;
 import org.apache.pig.impl.io.FileSpec;
+import org.apache.pig.impl.io.NullableBigDecimalWritable;
+import org.apache.pig.impl.io.NullableBigIntegerWritable;
 import org.apache.pig.impl.io.NullableBooleanWritable;
 import org.apache.pig.impl.io.NullableBytesWritable;
 import org.apache.pig.impl.io.NullableDateTimeWritable;
@@ -103,7 +108,7 @@ import org.apache.pig.impl.util.ObjectSerializer;
 import org.apache.pig.impl.util.Pair;
 import org.apache.pig.impl.util.UDFContext;
 import org.apache.pig.impl.util.Utils;
-import org.apache.pig.tools.pigstats.ScriptState;
+import org.apache.pig.tools.pigstats.mapreduce.MRScriptState;
 
 /**
  * This is compiler class that takes an MROperPlan and converts
@@ -133,6 +138,9 @@ public class JobControlCompiler{
     MROperPlan plan;
     Configuration conf;
     PigContext pigContext;
+
+    private static final Matcher DISTRIBUTED_CACHE_ARCHIVE_MATCHER = Pattern
+            .compile("\\.(zip|tgz|tar\\.gz|tar)$").matcher("");
 
     private static final Log log = LogFactory.getLog(JobControlCompiler.class);
 
@@ -165,7 +173,7 @@ public class JobControlCompiler{
     private Map<Job, MapReduceOper> jobMroMap;
     private int counterSize;
 
-    public JobControlCompiler(PigContext pigContext, Configuration conf) throws IOException {
+    public JobControlCompiler(PigContext pigContext, Configuration conf) {
         this.pigContext = pigContext;
         this.conf = conf;
         jobStoreMap = new HashMap<Job, Pair<List<POStore>, Path>>();
@@ -268,7 +276,7 @@ public class JobControlCompiler{
         this.plan = plan;
 
         int timeToSleep;
-        String defaultPigJobControlSleep = pigContext.getExecType() == ExecType.LOCAL ? "100" : "5000";
+        String defaultPigJobControlSleep = pigContext.getExecType().isLocal() ? "100" : "5000";
         String pigJobControlSleep = conf.get("pig.jobcontrol.sleep", defaultPigJobControlSleep);
         if (!pigJobControlSleep.equals(defaultPigJobControlSleep)) {
           log.info("overriding default JobControl sleep (" + defaultPigJobControlSleep + ") to " + pigJobControlSleep);
@@ -434,9 +442,9 @@ public class JobControlCompiler{
         Path tmpLocation = null;
 
         // add settings for pig statistics
-        String setScriptProp = conf.get(ScriptState.INSERT_ENABLED, "true");
+        String setScriptProp = conf.get(PigConfiguration.INSERT_ENABLED, "true");
         if (setScriptProp.equalsIgnoreCase("true")) {
-            ScriptState ss = ScriptState.get();
+            MRScriptState ss = MRScriptState.get();
             ss.addSettingsToConf(mro, conf);
         }
 
@@ -476,8 +484,11 @@ public class JobControlCompiler{
                     inp.add(ld.getLFile());
                 }
             }
-
-            adjustNumReducers(plan, mro, nwJob);
+            
+            if(!mro.reducePlan.isEmpty()){
+                log.info("Reduce phase detected, estimating # of required reducers.");
+                adjustNumReducers(plan, mro, nwJob);
+            }
 
             if(lds!=null && lds.size()>0){
               for (POLoad ld : lds) {
@@ -499,13 +510,18 @@ public class JobControlCompiler{
                 }
             }
 
-            if (!pigContext.inIllustrator && pigContext.getExecType() != ExecType.LOCAL)
+            if (!pigContext.inIllustrator && ! pigContext.getExecType().isLocal())
             {
 
                 // Setup the DistributedCache for this job
                 for (URL extraJar : pigContext.extraJars) {
                     log.debug("Adding jar to DistributedCache: " + extraJar.toString());
                     putJarOnClassPathThroughDistributedCache(pigContext, conf, extraJar);
+                }
+                
+                for (String scriptJar : pigContext.scriptJars) {
+                    log.debug("Adding jar to DistributedCache: " + scriptJar.toString());
+                    putJarOnClassPathThroughDistributedCache(pigContext, conf, new File(scriptJar).toURI().toURL());
                 }
 
                 //Create the jar of all functions and classes required
@@ -805,10 +821,7 @@ public class JobControlCompiler{
             }
 
             // tmp file compression setups
-            if (Utils.tmpFileCompression(pigContext)) {
-                conf.setBoolean("pig.tmpfilecompression", true);
-                conf.set("pig.tmpfilecompression.codec", Utils.tmpFileCompressionCodec(pigContext));
-            }
+            Utils.setTmpFileCompressionOnConf(pigContext, conf);
 
             String tmp;
             long maxCombinedSplitSize = 0;
@@ -836,7 +849,7 @@ public class JobControlCompiler{
             }
             // Serialize the UDF specific context info.
             UDFContext.getUDFContext().serialize(conf);
-            Job cjob = new Job(new JobConf(nwJob.getConfiguration()), new ArrayList());
+            Job cjob = new Job(new JobConf(nwJob.getConfiguration()), new ArrayList<Job>());
             jobStoreMap.put(cjob,new Pair<List<POStore>, Path>(storeLocations, tmpLocation));
             return cjob;
 
@@ -862,7 +875,7 @@ public class JobControlCompiler{
             org.apache.hadoop.mapreduce.Job nwJob) throws IOException {
         int jobParallelism = calculateRuntimeReducers(mro, nwJob);
 
-        if (mro.isSampler()) {
+        if (mro.isSampler() && plan.getSuccessors(mro) != null) {
             // We need to calculate the final number of reducers of the next job (order-by or skew-join)
             // to generate the quantfile.
             MapReduceOper nextMro = plan.getSuccessors(mro).get(0);
@@ -951,12 +964,11 @@ public class JobControlCompiler{
 
     public static class PigSecondaryKeyGroupComparator extends WritableComparator {
         public PigSecondaryKeyGroupComparator() {
-//            super(TupleFactory.getInstance().tupleClass(), true);
             super(NullableTuple.class, true);
         }
 
         @SuppressWarnings("unchecked")
-		@Override
+        @Override
         public int compare(WritableComparable a, WritableComparable b)
         {
             PigNullableWritable wa = (PigNullableWritable)a;
@@ -1045,6 +1057,18 @@ public class JobControlCompiler{
     public static class PigDoubleWritableComparator extends PigWritableComparator {
         public PigDoubleWritableComparator() {
             super(NullableDoubleWritable.class);
+        }
+    }
+
+    public static class PigBigIntegerWritableComparator extends PigWritableComparator {
+        public PigBigIntegerWritableComparator() {
+            super(NullableBigIntegerWritable.class);
+        }
+    }
+
+    public static class PigBigDecimalWritableComparator extends PigWritableComparator {
+        public PigBigDecimalWritableComparator() {
+            super(NullableBigDecimalWritable.class);
         }
     }
 
@@ -1146,6 +1170,18 @@ public class JobControlCompiler{
         }
     }
 
+    public static class PigGroupingBigIntegerWritableComparator extends WritableComparator {
+        public PigGroupingBigIntegerWritableComparator() {
+            super(NullableBigIntegerWritable.class, true);
+        }
+    }
+
+    public static class PigGroupingBigDecimalWritableComparator extends WritableComparator {
+        public PigGroupingBigDecimalWritableComparator() {
+            super(NullableBigDecimalWritable.class, true);
+        }
+    }
+
     private void selectComparator(
             MapReduceOper mro,
             byte keyType,
@@ -1203,6 +1239,14 @@ public class JobControlCompiler{
                 job.setSortComparatorClass(PigBytesRawComparator.class);
                 break;
 
+            case DataType.BIGINTEGER:
+                job.setSortComparatorClass(PigBigIntegerRawComparator.class);
+                break;
+
+            case DataType.BIGDECIMAL:
+                job.setSortComparatorClass(PigBigDecimalRawComparator.class);
+                break;
+
             case DataType.MAP:
                 int errCode = 1068;
                 String msg = "Using Map as key not supported.";
@@ -1232,6 +1276,16 @@ public class JobControlCompiler{
         case DataType.INTEGER:
             job.setSortComparatorClass(PigIntWritableComparator.class);
             job.setGroupingComparatorClass(PigGroupingIntWritableComparator.class);
+            break;
+
+        case DataType.BIGINTEGER:
+            job.setSortComparatorClass(PigBigIntegerWritableComparator.class);
+            job.setGroupingComparatorClass(PigGroupingBigIntegerWritableComparator.class);
+            break;
+
+        case DataType.BIGDECIMAL:
+            job.setSortComparatorClass(PigBigDecimalWritableComparator.class);
+            job.setGroupingComparatorClass(PigGroupingBigDecimalWritableComparator.class);
             break;
 
         case DataType.LONG:
@@ -1317,6 +1371,14 @@ public class JobControlCompiler{
         }
     }
 
+    private static void addToDistributedCache(URI uri, Configuration conf) {
+        if (DISTRIBUTED_CACHE_ARCHIVE_MATCHER.reset(uri.toString()).find()) {
+            DistributedCache.addCacheArchive(uri, conf);
+        } else {
+            DistributedCache.addCacheFile(uri, conf);
+        }
+    }
+
     private static void setupDistributedCache(PigContext pigContext,
             Configuration conf, String[] paths, boolean shipToCluster) throws IOException {
         // Turn on the symlink feature
@@ -1360,9 +1422,9 @@ public class JobControlCompiler{
                         "File doesn't exist: " + dst;
                         throw new ExecException(msg, errCode, errSrc);
                     }
-                    DistributedCache.addCacheFile(dstURI, conf);
+                    addToDistributedCache(dstURI, conf);
                 } else {
-                    DistributedCache.addCacheFile(srcURI, conf);
+                    addToDistributedCache(srcURI, conf);
                 }
             }
         }
@@ -1382,7 +1444,7 @@ public class JobControlCompiler{
 
         // XXX Hadoop currently doesn't support distributed cache in local mode.
         // This line will be removed after the support is added by Hadoop team.
-        if (pigContext.getExecType() != ExecType.LOCAL) {
+        if (!pigContext.getExecType().isLocal()) {
             symlink = prefix + "_"
                     + Integer.toString(System.identityHashCode(filename)) + "_"
                     + Long.toString(System.currentTimeMillis());
@@ -1402,8 +1464,21 @@ public class JobControlCompiler{
      * @throws ExecException
      */
     private static URI toURI(Path src) throws ExecException {
+        String pathInString = src.toString();
+        String fragment = null;
+        if (pathInString.contains("#")) {
+            fragment = pathInString.substring(pathInString.indexOf("#"));
+            pathInString = pathInString.substring(0, pathInString.indexOf("#"));
+        }
+        
+        // Encode the path
+        URI uri = new Path(pathInString).toUri();
+        String uriEncoded = uri.toString();
+        if (fragment!=null) {
+            uriEncoded = uriEncoded + fragment;
+        }
         try {
-            return new URI(src.toString());
+            return new URI(uriEncoded);
         } catch (URISyntaxException ue) {
             int errCode = 6003;
             String msg = "Invalid cache specification. " +
@@ -1420,6 +1495,7 @@ public class JobControlCompiler{
      * @return the path as seen on distributed cache
      * @throws IOException
      */
+    @SuppressWarnings("deprecation")
     private static void putJarOnClassPathThroughDistributedCache(
             PigContext pigContext,
             Configuration conf,
@@ -1485,7 +1561,7 @@ public class JobControlCompiler{
 
             // XXX Hadoop currently doesn't support distributed cache in local mode.
             // This line will be removed after the support is added
-            if (pigContext.getExecType() == ExecType.LOCAL) return;
+            if (pigContext.getExecType().isLocal()) return;
 
             // set up distributed cache for the replicated files
             FileSpec[] replFiles = join.getReplFiles();
@@ -1494,24 +1570,39 @@ public class JobControlCompiler{
             FileSpec[] newReplFiles = new FileSpec[replFiles.length];
 
             // the first input is not replicated
-            for (int i = 0; i < replFiles.length; i++) {
-                // ignore fragmented file
-                String symlink = "";
-                if (i != join.getFragment()) {
-                    symlink = "pigrepl_" + join.getOperatorKey().toString() + "_"
-                            + Integer.toString(System.identityHashCode(replFiles[i].getFileName()))
-                            + "_" + Long.toString(System.currentTimeMillis())
-                            + "_" + i;
-                    replicatedPath.add(replFiles[i].getFileName() + "#"
-                            + symlink);
-                }
-                newReplFiles[i] = new FileSpec(symlink,
-                        (replFiles[i] == null ? null : replFiles[i].getFuncSpec()));
-            }
-
-            join.setReplFiles(newReplFiles);
-
+            long sizeOfReplicatedInputs = 0;
             try {
+                for (int i = 0; i < replFiles.length; i++) {
+                    // ignore fragmented file
+                    String symlink = "";
+                    if (i != join.getFragment()) {
+                        symlink = "pigrepl_" + join.getOperatorKey().toString() + "_"
+                                + Integer.toString(System.identityHashCode(
+                                        replFiles[i].getFileName()))
+                                + "_" + Long.toString(System.currentTimeMillis())
+                                + "_" + i;
+                        replicatedPath.add(replFiles[i].getFileName() + "#"
+                                + symlink);
+
+                        Path path = new Path(replFiles[i].getFileName());
+                        FileSystem fs = path.getFileSystem(conf);
+                        sizeOfReplicatedInputs +=
+                                MapRedUtil.getPathLength(fs, fs.getFileStatus(path));
+                    }
+                    newReplFiles[i] = new FileSpec(symlink,
+                            (replFiles[i] == null ? null : replFiles[i].getFuncSpec()));
+                }
+
+                join.setReplFiles(newReplFiles);
+
+                String maxSize = pigContext.getProperties().getProperty(
+                        PigConfiguration.PIG_JOIN_REPLICATED_MAX_BYTES, "1000000000");
+                if (sizeOfReplicatedInputs > Long.parseLong(maxSize)){
+                    throw new VisitorException("Replicated input files size: "
+                            + sizeOfReplicatedInputs + " exceeds " +
+                            PigConfiguration.PIG_JOIN_REPLICATED_MAX_BYTES + ": " + maxSize);
+                }
+
                 setupDistributedCache(pigContext, conf, replicatedPath
                         .toArray(new String[0]), false);
             } catch (IOException e) {
@@ -1526,7 +1617,7 @@ public class JobControlCompiler{
 
             // XXX Hadoop currently doesn't support distributed cache in local mode.
             // This line will be removed after the support is added
-            if (pigContext.getExecType() == ExecType.LOCAL) return;
+            if (pigContext.getExecType().isLocal()) return;
 
             String indexFile = join.getIndexFile();
 
@@ -1550,7 +1641,7 @@ public class JobControlCompiler{
 
             // XXX Hadoop currently doesn't support distributed cache in local mode.
             // This line will be removed after the support is added
-            if (pigContext.getExecType() == ExecType.LOCAL) return;
+            if (pigContext.getExecType().isLocal()) return;
 
             String indexFile = mergeCoGrp.getIndexFileName();
 
@@ -1587,7 +1678,7 @@ public class JobControlCompiler{
 
             // XXX Hadoop currently doesn't support distributed cache in local mode.
             // This line will be removed after the support is added
-            if (pigContext.getExecType() == ExecType.LOCAL) return;
+            if (pigContext.getExecType().isLocal()) return;
 
             // set up distributed cache for files indicated by the UDF
             String[] files = func.getCacheFiles();
@@ -1631,8 +1722,6 @@ public class JobControlCompiler{
                 }
             }
         }
-
-        boolean isReplaced() { return replaced; }
     }
 
 }

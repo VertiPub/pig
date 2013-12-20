@@ -21,10 +21,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.hadoop.fs.Path;
 import org.apache.pig.ExecType;
 import org.apache.pig.PigRunner;
 import org.apache.pig.PigServer;
@@ -32,16 +35,15 @@ import org.apache.pig.data.Tuple;
 import org.apache.pig.scripting.ScriptEngine;
 import org.apache.pig.tools.pigstats.OutputStats;
 import org.apache.pig.tools.pigstats.PigStats;
+import org.apache.pig.tools.pigstats.PigStatsUtil;
 import org.junit.After;
 import org.junit.AfterClass;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class TestScriptLanguage {
 
     static MiniCluster cluster = MiniCluster.buildCluster();
-    private PigServer pigServer;
 
     @BeforeClass
     public static void setUpBeforeClass() throws Exception {
@@ -51,11 +53,6 @@ public class TestScriptLanguage {
     @AfterClass
     public static void tearDownAfterClass() throws Exception {
         cluster.shutDown();
-    }
-
-    @Before
-    public void setUp() throws Exception {
-        pigServer = new PigServer(ExecType.MAPREDUCE, cluster.getProperties());
     }
 
     @After
@@ -74,6 +71,7 @@ public class TestScriptLanguage {
         String scriptName = name + "_testScript.py";
         Util.createLocalInputFile(scriptName, script);
         ScriptEngine scriptEngine = ScriptEngine.getInstance("jython");
+        PigServer pigServer = new PigServer(ExecType.MAPREDUCE, cluster.getProperties());
         Map<String, List<PigStats>> statsMap = scriptEngine.run(pigServer.getPigContext(), scriptName);
         return statsMap;
     }
@@ -534,8 +532,7 @@ public class TestScriptLanguage {
         assertTrue(stats.getErrorCode() == 1121);
         assertTrue(stats.getReturnCode() == PigRunner.ReturnCode.PIG_EXCEPTION);
 
-        String expected = "Python Error. Traceback (most recent call last):\n" +
-            "  File \"";
+        String expected = "Python Error. Traceback (most recent call last):";
 
         String msg = stats.getErrorMessage();
         Util.checkErrorMessageContainsExpected(msg, expected);
@@ -637,5 +634,51 @@ public class TestScriptLanguage {
         assertEquals(0, statsMap.size());
 
    }
+    
+    @Test
+    public void testSysArguments() throws Exception {
+        String[] script = {
+                "#!/usr/bin/python",
+                "from org.apache.pig.scripting import Pig",
+                "import sys",
+                "P = Pig.compile(\"\"\"rmf $file;\"\"\")",
+                "files = sys.argv[1].strip().split(',')",
+                "for file in files:",
+                "    P.bind({'file':file}).runSingle()"
+         };
+        String file1 = "/tmp/sysarg_1";
+        String file2 = "/tmp/sysarg_2";
+        createEmptyFiles(file1, file2);
+        
+        File scriptFile = Util.createInputFile("sysarg", ".py", script);
+        // ExecMode.STRING
+        PigStats stats = PigRunner.run(new String[] { scriptFile.getAbsolutePath(),
+                file1 + "," + file2 }, null);
+        assertEquals(null, stats.getErrorMessage());
+        assertFileNotExists(file1, file2);
+        
+        createEmptyFiles(file1, file2);
+        // Clear stats from previous execution
+        PigStatsUtil.getEmptyPigStats();
+        
+        // ExecMode.FILE
+        stats = PigRunner.run(new String[] { "-f", scriptFile.getAbsolutePath(), "arg0", 
+                file1 + "," + file2 }, null);
+        assertEquals(null, stats.getErrorMessage());
+        assertFileNotExists(file1, file2);
+    }
+    
+    private void createEmptyFiles(String... filenames) throws IOException {
+        for (String file : filenames) {
+            Util.createInputFile(cluster, file, new String[]{""});
+            assertTrue(cluster.getFileSystem().exists(new Path(file)));
+        }
+    }
+    
+    private void assertFileNotExists(String... filenames) throws IOException {
+        for (String file : filenames) {
+            assertFalse(cluster.getFileSystem().exists(new Path(file)));
+        }
+    }
 
 }

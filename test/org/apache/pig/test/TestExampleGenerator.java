@@ -33,6 +33,7 @@ import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.data.DataBag;
 import org.apache.pig.impl.PigContext;
 import org.apache.pig.newplan.Operator;
+import org.apache.pig.test.utils.UDFContextTestLoaderWithSignature;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -58,8 +59,8 @@ public class TestExampleGenerator {
 
         fileA.deleteOnExit();
         fileB.deleteOnExit();
-        A = "'" + fileA.getPath() + "'";
-        B = "'" + fileB.getPath() + "'";
+        A = Util.encodeEscape("'" + fileA.getPath() + "'");
+        B = Util.encodeEscape("'" + fileB.getPath() + "'");
         System.out.println("A : " + A + "\n" + "B : " + B);
         System.out.println("Test data created.");
     }
@@ -389,9 +390,18 @@ public class TestExampleGenerator {
         pigServer.registerQuery("B = filter A by x < 5;");
         pigServer.registerQuery("C = group B by x;");
         pigServer.registerQuery("D = foreach C generate group as x, COUNT(B) as the_count;");
-        pigServer.registerQuery("store D into '" +  out.getAbsolutePath() + "';");
+        pigServer.registerQuery("store D into '" +  Util.encodeEscape(out.getAbsolutePath()) + "';");
         Map<Operator, DataBag> derivedData = pigServer.getExamples(null);
     
+        assertNotNull(derivedData);
+    }
+    
+    @Test
+    public void testLoaderWithContext() throws Exception {
+        PigServer pigServer = new PigServer(pigContext);
+        pigServer.registerQuery("A = load " + A.toString() + " using " + UDFContextTestLoaderWithSignature.class.getName() + "('a') as (x, y);");
+        Map<Operator, DataBag> derivedData = pigServer.getExamples("A");
+        
         assertNotNull(derivedData);
     }
 

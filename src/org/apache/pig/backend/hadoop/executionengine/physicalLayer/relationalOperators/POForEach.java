@@ -205,7 +205,7 @@ public class POForEach extends PhysicalOperator {
      * to denote the begin and end of the nested plan processing.
      */
     @Override
-    public Result getNext(Tuple t) throws ExecException {
+    public Result getNextTuple() throws ExecException {
         try {
             Result res = null;
             Result inp = null;
@@ -371,9 +371,11 @@ public class POForEach extends PhysicalOperator {
                 case DataType.DOUBLE :
                 case DataType.LONG :
                 case DataType.FLOAT :
+                case DataType.BIGINTEGER :
+                case DataType.BIGDECIMAL :
                 case DataType.DATETIME :
                 case DataType.CHARARRAY :
-                    inputData = planLeafOps[i].getNext(getDummy(resultTypes[i]), resultTypes[i]);
+                    inputData = planLeafOps[i].getNext(resultTypes[i]);
                     break;
                 default: {
                     int errCode = 2080;

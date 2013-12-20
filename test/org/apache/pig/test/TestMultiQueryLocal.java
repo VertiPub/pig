@@ -38,6 +38,7 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.pig.ExecType;
 import org.apache.pig.PigException;
 import org.apache.pig.PigServer;
+import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.MRExecutionEngine;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.MapReduceLauncher;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigTextOutputFormat;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.plans.PhysicalPlan;
@@ -61,6 +62,7 @@ import org.junit.Test;
 public class TestMultiQueryLocal {
 
     private PigServer myPig;
+    private String TMP_DIR;
 
     @Before
     public void setUp() throws Exception {
@@ -68,6 +70,8 @@ public class TestMultiQueryLocal {
         context.getProperties().setProperty("opt.multiquery", ""+true);
         myPig = new PigServer(context);
         myPig.getPigContext().getProperties().setProperty("pig.usenewlogicalplan", "false");
+        myPig.getPigContext().getProperties().setProperty("pig.temp.dir", "build/test/tmp/");
+        TMP_DIR = FileLocalizer.getTemporaryPath(myPig.getPigContext()).toUri().getPath();
         deleteOutputFiles();
     }
 
@@ -88,11 +92,11 @@ public class TestMultiQueryLocal {
             myPig.registerQuery("a = load 'test/org/apache/pig/test/data/passwd' " +
                                 "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);");
             myPig.registerQuery("b = filter a by uid > 5;");
-            myPig.registerQuery("store b into '/tmp/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
             myPig.registerQuery("c = group b by gid;");
-            myPig.registerQuery("store c into '/tmp/Pig-TestMultiQueryLocal2';");
+            myPig.registerQuery("store c into '" + TMP_DIR + "/Pig-TestMultiQueryLocal2';");
 
-            LogicalPlan lp = checkLogicalPlan(1, 2, 5);
+            LogicalPlan lp = checkLogicalPlan(1, 2, 8);
 
             // XXX Physical plan has one less node in the local case
             PhysicalPlan pp = checkPhysicalPlan(lp, 1, 2, 11);
@@ -134,9 +138,9 @@ public class TestMultiQueryLocal {
             myPig.registerQuery("a = load 'test/org/apache/pig/test/data/passwd' " +
                                 "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);");
             myPig.registerQuery("b = filter a by uid > 5;");
-            myPig.registerQuery("store b into '/tmp/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
             myPig.registerQuery("c = group b by gid;");
-            myPig.registerQuery("store c into '/tmp/Pig-TestMultiQueryLocal2';");
+            myPig.registerQuery("store c into '" + TMP_DIR + "/Pig-TestMultiQueryLocal2';");
 
             myPig.executeBatch();
 
@@ -160,10 +164,10 @@ public class TestMultiQueryLocal {
                                 "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);");
             myPig.registerQuery("b = filter a by uid > 5;");
             myPig.executeBatch();
-            myPig.registerQuery("store b into '/tmp/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
             myPig.executeBatch();
             myPig.registerQuery("c = group b by gid;");
-            myPig.registerQuery("store c into '/tmp/Pig-TestMultiQueryLocal2';");
+            myPig.registerQuery("store c into '" + TMP_DIR + "/Pig-TestMultiQueryLocal2';");
 
             myPig.executeBatch();
             myPig.discardBatch();
@@ -187,13 +191,13 @@ public class TestMultiQueryLocal {
             myPig.registerQuery("a = load 'test/org/apache/pig/test/data/passwd' " +
                                 "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);");
             myPig.registerQuery("b = filter a by uid > 5;");
-            myPig.registerQuery("store b into '/tmp/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
             myPig.registerQuery("c = filter b by uid > 10;");
-            myPig.registerQuery("store c into '/tmp/Pig-TestMultiQueryLocal2';");
+            myPig.registerQuery("store c into '" + TMP_DIR + "/Pig-TestMultiQueryLocal2';");
             myPig.registerQuery("d = filter c by uid > 15;");
-            myPig.registerQuery("store d into '/tmp/Pig-TestMultiQueryLocal3';");
+            myPig.registerQuery("store d into '" + TMP_DIR + "/Pig-TestMultiQueryLocal3';");
 
-            LogicalPlan lp = checkLogicalPlan(1, 3, 7);
+            LogicalPlan lp = checkLogicalPlan(1, 3, 13);
 
             PhysicalPlan pp = checkPhysicalPlan(lp, 1, 3, 14);
 
@@ -218,11 +222,11 @@ public class TestMultiQueryLocal {
             myPig.registerQuery("a = load 'test/org/apache/pig/test/data/passwd' " +
                                 "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);");
             myPig.registerQuery("b = filter a by uid > 5;");
-            myPig.registerQuery("store b into '/tmp/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
             myPig.registerQuery("c = filter b by uid > 10;");
-            myPig.registerQuery("store c into '/tmp/Pig-TestMultiQueryLocal2';");
+            myPig.registerQuery("store c into '" + TMP_DIR + "/Pig-TestMultiQueryLocal2';");
             myPig.registerQuery("d = filter c by uid > 15;");
-            myPig.registerQuery("store d into '/tmp/Pig-TestMultiQueryLocal3';");
+            myPig.registerQuery("store d into '" + TMP_DIR + "/Pig-TestMultiQueryLocal3';");
 
             myPig.executeBatch();
             myPig.discardBatch();
@@ -249,12 +253,12 @@ public class TestMultiQueryLocal {
                                 "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);");
             myPig.registerQuery("c = filter a by uid > 5;");
             myPig.registerQuery("d = filter b by uid > 10;");
-            myPig.registerQuery("store c into '/tmp/Pig-TestMultiQueryLocal1';");
-            myPig.registerQuery("store d into '/tmp/Pig-TestMultiQueryLocal2';");
+            myPig.registerQuery("store c into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store d into '" + TMP_DIR + "/Pig-TestMultiQueryLocal2';");
             myPig.registerQuery("e = cogroup c by uid, d by uid;");
-            myPig.registerQuery("store e into '/tmp/Pig-TestMultiQueryLocal3';");
+            myPig.registerQuery("store e into '" + TMP_DIR + "/Pig-TestMultiQueryLocal3';");
 
-            LogicalPlan lp = checkLogicalPlan(2, 3, 8);
+            LogicalPlan lp = checkLogicalPlan(2, 3, 14);
 
             // XXX the total number of ops is one less in the local case
             PhysicalPlan pp = checkPhysicalPlan(lp, 2, 3, 19);
@@ -283,10 +287,10 @@ public class TestMultiQueryLocal {
                                 "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);");
             myPig.registerQuery("c = filter a by uid > 5;");
             myPig.registerQuery("d = filter b by uid > 10;");
-            myPig.registerQuery("store c into '/tmp/Pig-TestMultiQueryLocal1';");
-            myPig.registerQuery("store d into '/tmp/Pig-TestMultiQueryLocal2';");
+            myPig.registerQuery("store c into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store d into '" + TMP_DIR + "/Pig-TestMultiQueryLocal2';");
             myPig.registerQuery("e = cogroup c by uid, d by uid;");
-            myPig.registerQuery("store e into '/tmp/Pig-TestMultiQueryLocal3';");
+            myPig.registerQuery("store e into '" + TMP_DIR + "/Pig-TestMultiQueryLocal3';");
 
             myPig.executeBatch();
             myPig.discardBatch();
@@ -407,17 +411,17 @@ public class TestMultiQueryLocal {
                                 "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);");
             myPig.registerQuery("b = filter a by uid < 5;");
             myPig.registerQuery("c = filter a by uid > 5;");
-            myPig.registerQuery("store b into '/tmp/Pig-TestMultiQueryLocal1' using " + PigStorageWithConfig.class.getName() + "('a');");
-            myPig.registerQuery("store c into '/tmp/Pig-TestMultiQueryLocal2' using " + PigStorageWithConfig.class.getName() + "('b');");
+            myPig.registerQuery("store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1' using " + PigStorageWithConfig.class.getName() + "('a');");
+            myPig.registerQuery("store c into '" + TMP_DIR + "/Pig-TestMultiQueryLocal2' using " + PigStorageWithConfig.class.getName() + "('b');");
 
             myPig.executeBatch();
             myPig.discardBatch();
-            BufferedReader reader = new BufferedReader(new FileReader("/tmp/Pig-TestMultiQueryLocal1/part-m-00000"));
+            BufferedReader reader = new BufferedReader(new FileReader(TMP_DIR + "/Pig-TestMultiQueryLocal1/part-m-00000"));
             String line;
             while ((line = reader.readLine())!=null) {
                 Assert.assertTrue(line.endsWith("a"));
             }
-            reader = new BufferedReader(new FileReader("/tmp/Pig-TestMultiQueryLocal2/part-m-00000"));
+            reader = new BufferedReader(new FileReader(TMP_DIR + "/Pig-TestMultiQueryLocal2/part-m-00000"));
             while ((line = reader.readLine())!=null) {
                 Assert.assertTrue(line.endsWith("b"));
             }
@@ -438,7 +442,7 @@ public class TestMultiQueryLocal {
                           + "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);"
                           + "b = filter a by uid > 5;"
                           + "explain b;"
-                          + "store b into '/tmp/Pig-TestMultiQueryLocal1';\n";
+                          + "store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';\n";
             
             GruntParser parser = new GruntParser(new StringReader(script));
             parser.setInteractive(false);
@@ -463,7 +467,7 @@ public class TestMultiQueryLocal {
                           + "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);"
                           + "b = filter a by uid > 5;"
                           + "dump b;"
-                          + "store b into '/tmp/Pig-TestMultiQueryLocal1';\n";
+                          + "store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';\n";
             
             GruntParser parser = new GruntParser(new StringReader(script));
             parser.setInteractive(false);
@@ -488,7 +492,7 @@ public class TestMultiQueryLocal {
                           + "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);"
                           + "b = filter a by uid > 5;"
                           + "describe b;"
-                          + "store b into '/tmp/Pig-TestMultiQueryLocal1';\n";
+                          + "store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';\n";
             
             GruntParser parser = new GruntParser(new StringReader(script));
             parser.setInteractive(false);
@@ -513,7 +517,7 @@ public class TestMultiQueryLocal {
                           + "using PigStorage(':') as (uname:chararray, passwd:chararray, uid:int,gid:int);"
                           + "b = filter a by uid > 5;"
                           + "illustrate b;"
-                          + "store b into '/tmp/Pig-TestMultiQueryLocal1';\n";
+                          + "store b into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';\n";
             
             GruntParser parser = new GruntParser(new StringReader(script));
             parser.setInteractive(false);
@@ -537,17 +541,17 @@ public class TestMultiQueryLocal {
         try {
             myPig.setBatchOn();
             myPig.registerQuery("a = load 'test/org/apache/pig/test/data/passwd';");
-            myPig.registerQuery("store a into '/tmp/Pig-TestMultiQueryLocal1' using BinStorage();");
-            myPig.registerQuery("a = load '/tmp/Pig-TestMultiQueryLocal1';");
-            myPig.registerQuery("store a into '/tmp/Pig-TestMultiQueryLocal2';");
-            myPig.registerQuery("a = load '/tmp/Pig-TestMultiQueryLocal1';");
-            myPig.registerQuery("store a into '/tmp/Pig-TestMultiQueryLocal3';");
-            myPig.registerQuery("a = load '/tmp/Pig-TestMultiQueryLocal2' using BinStorage();");
-            myPig.registerQuery("store a into '/tmp/Pig-TestMultiQueryLocal4';");
-            myPig.registerQuery("a = load '/tmp/Pig-TestMultiQueryLocal2';");
-            myPig.registerQuery("b = load '/tmp/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store a into '" + TMP_DIR + "/Pig-TestMultiQueryLocal1' using BinStorage();");
+            myPig.registerQuery("a = load '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store a into '" + TMP_DIR + "/Pig-TestMultiQueryLocal2';");
+            myPig.registerQuery("a = load '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
+            myPig.registerQuery("store a into '" + TMP_DIR + "/Pig-TestMultiQueryLocal3';");
+            myPig.registerQuery("a = load '" + TMP_DIR + "/Pig-TestMultiQueryLocal2' using BinStorage();");
+            myPig.registerQuery("store a into '" + TMP_DIR + "/Pig-TestMultiQueryLocal4';");
+            myPig.registerQuery("a = load '" + TMP_DIR + "/Pig-TestMultiQueryLocal2';");
+            myPig.registerQuery("b = load '" + TMP_DIR + "/Pig-TestMultiQueryLocal1';");
             myPig.registerQuery("c = cogroup a by $0, b by $0;");
-            myPig.registerQuery("store c into '/tmp/Pig-TestMultiQueryLocal5';");
+            myPig.registerQuery("store c into '" + TMP_DIR + "/Pig-TestMultiQueryLocal5';");
 
             LogicalPlan lp = checkLogicalPlan(1, 3, 12);
             PhysicalPlan pp = checkPhysicalPlan(lp, 1, 3, 15);
@@ -555,11 +559,11 @@ public class TestMultiQueryLocal {
             myPig.executeBatch();
             myPig.discardBatch(); 
 
-            Assert.assertTrue(new File("/tmp/Pig-TestMultiQueryLocal1").exists());
-            Assert.assertTrue(new File("/tmp/Pig-TestMultiQueryLocal2").exists());
-            Assert.assertTrue(new File("/tmp/Pig-TestMultiQueryLocal3").exists());
-            Assert.assertTrue(new File("/tmp/Pig-TestMultiQueryLocal4").exists());
-            Assert.assertTrue(new File("/tmp/Pig-TestMultiQueryLocal5").exists());
+            Assert.assertTrue(new File(TMP_DIR + "/Pig-TestMultiQueryLocal1").exists());
+            Assert.assertTrue(new File(TMP_DIR + "/Pig-TestMultiQueryLocal2").exists());
+            Assert.assertTrue(new File(TMP_DIR + "/Pig-TestMultiQueryLocal3").exists());
+            Assert.assertTrue(new File(TMP_DIR + "/Pig-TestMultiQueryLocal4").exists());
+            Assert.assertTrue(new File(TMP_DIR + "/Pig-TestMultiQueryLocal5").exists());
 
             
         } catch (Exception e) {
@@ -625,7 +629,7 @@ public class TestMultiQueryLocal {
 
         System.out.println("===== check physical plan =====");        
 
-        PhysicalPlan pp = myPig.getPigContext().getExecutionEngine().compile(
+        PhysicalPlan pp = ((MRExecutionEngine)myPig.getPigContext().getExecutionEngine()).compile(
                 lp, null);
 
         Assert.assertEquals(expectedRoots, pp.getRoots().size());
@@ -659,11 +663,11 @@ public class TestMultiQueryLocal {
     }
 
     private void deleteOutputFiles() {
-        String outputFiles[] = { "/tmp/Pig-TestMultiQueryLocal1",
-                                 "/tmp/Pig-TestMultiQueryLocal2",
-                                 "/tmp/Pig-TestMultiQueryLocal3",
-                                 "/tmp/Pig-TestMultiQueryLocal4",
-                                 "/tmp/Pig-TestMultiQueryLocal5"
+        String outputFiles[] = { TMP_DIR + "/Pig-TestMultiQueryLocal1",
+                                 TMP_DIR + "/Pig-TestMultiQueryLocal2",
+                                 TMP_DIR + "/Pig-TestMultiQueryLocal3",
+                                 TMP_DIR + "/Pig-TestMultiQueryLocal4",
+                                 TMP_DIR + "/Pig-TestMultiQueryLocal5"
                 };
         try {
             for( String outputFile : outputFiles ) {

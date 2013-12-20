@@ -54,6 +54,7 @@ import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigSplit;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigTextInputFormat;
 import org.apache.pig.data.Tuple;
 import org.apache.pig.data.TupleFactory;
+import org.apache.pig.impl.PigImplConstants;
 import org.apache.pig.impl.io.FileLocalizer;
 import org.apache.pig.impl.logicalLayer.FrontendException;
 import org.apache.pig.impl.util.ObjectSerializer;
@@ -78,14 +79,17 @@ public class TestPruneColumn {
     File tmpFile10;
     File tmpFile11;
     File tmpFile12;
+    File tmpFile13;
     File logFile;
 
     private static final String simpleEchoStreamingCommand;
     static {
-        if (Util.WINDOWS)
-            simpleEchoStreamingCommand = "perl -ne \"print ^\"$_^\"\"";
-        else
-            simpleEchoStreamingCommand = "perl -ne 'print \"$_\"'";
+        String quote = "'";
+        if (Util.WINDOWS) {
+            quote = "\"";
+        }
+
+        simpleEchoStreamingCommand = "perl -ne " + quote + "print $_" + quote;
     }
 
     static public class MyFilterFunc extends FilterFunc {
@@ -176,6 +180,16 @@ public class TestPruneColumn {
         ps = new PrintStream(new FileOutputStream(tmpFile12));
         ps.println("[key1#1,key2#2,cond#1]");
         ps.println("[key1#2,key2#3,cond#1]");
+        ps.close();
+        
+        tmpFile13 = File.createTempFile("prune", "txt");
+        ps = new PrintStream(new FileOutputStream(tmpFile13));
+        ps.println("3\ti");
+        ps.println("3\ti");
+        ps.println("1\ti");
+        ps.println("2\ti");
+        ps.println("2\ti");
+        ps.println("3\ti");
         ps.close();
     }
 
@@ -1546,6 +1560,41 @@ public class TestPruneColumn {
         assertTrue(checkLogFileMessage(new String[]{"Columns pruned for A: $1",
                 "Columns pruned for B: $1"}));
     }
+    
+    @Test
+    public void testComplex2() throws Exception {
+        HashSet<String> optimizerRules = new HashSet<String>();
+        optimizerRules.add("PushUpFilter");
+        pigServer.getPigContext().getProperties().setProperty(
+                PigImplConstants.PIG_OPTIMIZER_RULES_KEY,
+                ObjectSerializer.serialize(optimizerRules));
+        pigServer.registerQuery("A = load '"+ Util.generateURI(Util.encodeEscape(tmpFile13.toString()), pigServer.getPigContext()) + "' as (a:int, b:chararray);");
+        pigServer.registerQuery("B = FOREACH A generate a;");
+        pigServer.registerQuery("C = GROUP B by a;");
+        pigServer.registerQuery("D = filter C by group > 0 and group < 100;");
+        pigServer.registerQuery("E = FOREACH D {F = LIMIT B 1 ;GENERATE B.a as mya, FLATTEN(F.a) as setting;}");
+        pigServer.registerQuery("G = FOREACH E GENERATE mya, setting as setting;");
+
+        Iterator<Tuple> iter = pigServer.openIterator("G");
+
+        assertTrue(iter.hasNext());
+        Tuple t = iter.next();
+        assertEquals("({(1)},1)", t.toString());
+        
+        assertTrue(iter.hasNext());
+        t = iter.next();
+        assertEquals("({(2),(2)},2)", t.toString());
+        
+        assertTrue(iter.hasNext());
+        t = iter.next();
+        assertEquals("({(3),(3),(3)},3)", t.toString());
+
+        assertFalse(iter.hasNext());
+
+        assertTrue(checkLogFileMessage(new String[]{"Columns pruned for A: $1"}));
+        
+        pigServer.getPigContext().getProperties().remove(PigImplConstants.PIG_OPTIMIZER_RULES_KEY);
+    }
 
     @Test
     public void testCoGroup8() throws Exception {
@@ -2061,7 +2110,7 @@ public class TestPruneColumn {
 
     @Test
     public void testCogroup10() throws Exception {
-        pigServer.registerQuery("A = load '"+ Util.generateURI(tmpFile2.toString(), pigServer.getPigContext()) + "' AS (a0, a1:double);");
+        pigServer.registerQuery("A = load '"+ Util.generateURI(Util.encodeEscape(tmpFile2.toString()), pigServer.getPigContext()) + "' AS (a0, a1:double);");
         pigServer.registerQuery("B = foreach A generate a0, a1, 0 as joinField;");
         pigServer.registerQuery("C = group B all;");
         pigServer.registerQuery("D = foreach C generate 0 as joinField, SUM(B.a1) as total;");
@@ -2089,9 +2138,9 @@ public class TestPruneColumn {
         Util.createLocalInputFile(input2.getAbsolutePath(), new String[]
                 {"[key1#0,key2#5,key3#val3,key4#val4,key5#val5]"});
 
-        pigServer.registerQuery("event_serve = LOAD '" + input1.getAbsolutePath() +
+        pigServer.registerQuery("event_serve = LOAD '" + Util.encodeEscape(input1.getAbsolutePath()) +
                 "' AS (s, m, l);");
-        pigServer.registerQuery("cm_data_raw = LOAD '" + input2.getAbsolutePath() +
+        pigServer.registerQuery("cm_data_raw = LOAD '" + Util.encodeEscape(input2.getAbsolutePath()) +
                 "' AS (s, m, l);");
         pigServer.registerQuery("cm_serve = FOREACH cm_data_raw GENERATE  s#'key3' AS f1,  s#'key4' AS f2, s#'key5' AS f3 ;");
         pigServer.registerQuery("cm_serve_lowercase = stream cm_serve through `tr [:upper:] [:lower:]`;");

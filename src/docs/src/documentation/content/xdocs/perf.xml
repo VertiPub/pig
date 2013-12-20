@@ -36,7 +36,7 @@
 
 <section>
 <title>When the Combiner is Used</title> 
-<p>The combiner is generally used in the case of non-nested foreach where all projections are either expressions on the group column or expressions on algebraic UDFs (see  <a href="#Algebraic-interface">Make Your UDFs Algebraic</a>).</p>
+<p>The combiner is generally used in the case of non-nested foreach where all projections are either expressions on the group column or expressions on algebraic UDFs (see  <a href="#algebraic-interface">Make Your UDFs Algebraic</a>).</p>
 
 <p>Example:</p>
 
@@ -171,6 +171,33 @@ D = foreach B generate group, MIN (A.gpa). MAX(A.gpa);
 <p id="memory-bags">The amount of memory allocated to bags is determined by pig.cachedbag.memusage; the default is set to 20% (0.2) of available memory. Note that this memory is shared across all large bags used by the application.</p>
 
 </section> 
+
+<!-- ================================================================== -->
+<!-- REDUCER ESTIMATION -->
+<section id="reducer-estimation">
+<title>Reducer Estimation</title>
+
+<p>
+By default Pig determines the number of reducers to use for a given job based on the size of the
+input to the map phase. The input data size is divided by the
+pig.exec.reducers.bytes.per.reducer parameter value (default 1GB) to determine the number of
+reducers. The maximum number of reducers for a job is limited by the pig.exec.reducers.max parameter
+(default 999).
+</p>
+
+<p>
+The default reducer estimation algorithm described above can be overridden by setting the
+pig.exec.reducer.estimator parameter to the fully qualified class name of an implementation of
+<a href="http://svn.apache.org/repos/asf/pig/trunk/src/org/apache/pig/backend/hadoop/executionengine/mapReduceLayer/PigReducerEstimator.java">org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigReducerEstimator</a>.
+The class must exist on the classpath of the process submitting the Pig job. If the
+pig.exec.reducer.estimator.arg parameter is set, the value will be passed to a constructor
+of the implementing class that takes a single String.
+</p>
+
+<p>
+</p>
+
+</section>
 
 
 <!-- ==================================================================== -->
@@ -450,14 +477,40 @@ STORE Gtab INTO '/user/vxj/finalresult2';
 <section id="optimization-rules">
 <title>Optimization Rules</title>
 
-<p>Pig supports various optimization rules. By default optimization, and all optimization rules, are turned on. 
-To turn off optimiztion, use:</p>
+<p>Pig supports various optimization rules, all of which are enabled by default.
+To disable all or specific optimizations, use one or more of the following methods.
+Note some optimization rules are mandatory and cannot be disabled.</p>
 
+    <ul>
+        <li>The <code>pig.optimizer.rules.disabled</code>
+            <a href="start.html#properties">pig property</a>, which accepts a
+            comma-separated list of optimization rules to disable; the <code>all</code>
+            keyword disables all non-mandatory optimizations.
+            (e.g.: <code>set pig.optimizer.rules.disabled 'ColumnMapKeyPrune';</code>)</li>
+        <li>The <code>-t, -optimizer_off</code> command-line options.
+            (e.g.: <code>pig -optimizer_off [opt_rule | all]</code>)</li>
+    </ul>
+
+<p><code>FilterLogicExpressionSimplifier</code> is an exception to the above.
+The rule is disabled by default, and enabled by setting the
+<code>pig.exec.filterLogicExpressionSimplifier</code> pig property to true.</p>
+
+<!-- +++++++++++++++++++++++++++++++ -->
+<section id="PartitionFilterOptimizer">
+<title>PartitionFilterOptimizer</title>
+<p>Push the filter condition to loader.</p>
 <source>
-pig -optimizer_off [opt_rule | all ]
+A = LOAD 'input' as (dt, state, event) using HCatLoader();
+B = FILTER A BY dt=='201310' AND state=='CA';
 </source>
-
-<p>Note that some rules are mandatory and cannot be turned off.</p>
+<p>Filter condition will be pushed to loader if loader supports (Usually
+the loader is partition aware, such as HCatLoader)</p>
+<source>
+A = LOAD 'input' as (dt, state, event) using HCatLoader();
+--Filter is removed
+</source>
+<p>Loader will be instructed to loader the partition with dt=='201310' and state=='CA'</p>
+</section>
 
 <!-- +++++++++++++++++++++++++++++++ -->
 <section id="FilterLogicExpressionSimplifier">
@@ -1031,6 +1084,7 @@ C = JOIN big BY b1, tiny BY t1, mini BY m1 USING 'replicated';
 <p>Fragment replicate joins are experimental; we don't have a strong sense of how small the small relation must be to fit 
 into memory. In our tests with a simple query that involves just a JOIN, a relation of up to 100 M can be used if the process overall 
 gets 1 GB of memory. Please share your observations and experience with us.</p>
+<p>In order to avoid replicated joins on large relations, we fail if size of relation(s) to be replicated (in bytes) is greater than pig.join.replicated.max.bytes (default = 1GB).</p>
 </section>
 </section>
 <!-- END FRAGMENT REPLICATE JOINS-->

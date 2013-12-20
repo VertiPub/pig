@@ -116,12 +116,16 @@ query : ^( QUERY statement* )
 statement : general_statement
           | split_statement
           | realias_statement
+          | register_statement
 ;
 
 split_statement : split_clause
 ;
 
 realias_statement : realias_clause
+;
+
+register_statement : ^( REGISTER QUOTEDSTRING (USING IDENTIFIER AS IDENTIFIER)? )
 ;
 
 general_statement : ^( STATEMENT ( alias { aliases.add( $alias.name ); } )? op_clause parallel_clause? )
@@ -170,6 +174,7 @@ op_clause : define_clause
           | split_clause
           | foreach_clause
           | cube_clause
+          | assert_clause
 ;
 
 define_clause : ^( DEFINE alias ( cmd | func_clause ) )
@@ -254,6 +259,8 @@ simple_type returns [byte typev]
   | LONG { $typev = DataType.LONG; }
   | FLOAT { $typev = DataType.FLOAT; }
   | DOUBLE { $typev = DataType.DOUBLE; }
+  | BIGINTEGER { $typev = DataType.BIGINTEGER; }
+  | BIGDECIMAL { $typev = DataType.BIGDECIMAL; }
   | DATETIME { $typev = DataType.DATETIME; }
   | CHARARRAY { $typev = DataType.CHARARRAY; }
   | BYTEARRAY { $typev = DataType.BYTEARRAY; }
@@ -349,6 +356,12 @@ flatten_clause : ^( FLATTEN expr )
 store_clause : ^( STORE rel filename func_clause? )
 ;
 
+assert_clause : ^( ASSERT rel cond comment? )
+; 
+
+comment : QUOTEDSTRING
+;
+
 filter_clause : ^( FILTER rel cond )
 ;
 
@@ -357,11 +370,15 @@ cond : ^( OR cond cond )
      | ^( NOT cond )
      | ^( NULL expr NOT? )
      | ^( rel_op expr expr )
+     | in_eval
      | func_eval
      | ^( BOOL_COND expr )
 ;
 
-func_eval: ^( FUNC_EVAL func_name real_arg* )
+in_eval: ^( IN ( ^( IN_LHS expr ) ^( IN_RHS expr ) )+ )
+;
+
+func_eval: ^( FUNC_EVAL func_name real_arg* ) | ^( INVOKER_FUNC_EVAL func_name IDENTIFIER real_arg* )
 ;
 
 real_arg : expr | STAR | col_range
@@ -392,7 +409,7 @@ bag_type_cast : ^( BAG_TYPE_CAST tuple_type_cast? )
 var_expr : projectable_expr ( dot_proj | pound_proj )*
 ;
 
-projectable_expr: func_eval | col_ref | bin_expr
+projectable_expr: func_eval | col_ref | bin_expr | case_expr | case_cond
 ;
 
 dot_proj : ^( PERIOD col_alias_or_index+ )
@@ -415,6 +432,12 @@ pound_proj : ^( POUND ( QUOTEDSTRING | NULL ) )
 ;
 
 bin_expr : ^( BIN_EXPR cond expr expr )
+;
+
+case_expr: ^( CASE_EXPR ( ^( CASE_EXPR_LHS expr ) ( ^( CASE_EXPR_RHS expr) )+ )+ )
+;
+
+case_cond: ^( CASE_COND ^( WHEN cond+ ) ^( THEN expr+ ) )
 ;
 
 limit_clause : ^( LIMIT rel ( INTEGER | LONGINTEGER | expr ) )
@@ -584,7 +607,7 @@ split_branch
    }
 ;
 
-split_otherwise 	: ^( OTHERWISE alias )
+split_otherwise : ^( OTHERWISE alias )
    {
        aliases.add( $alias.name );
    }
@@ -608,7 +631,7 @@ literal : scalar | map | bag | tuple
 scalar : num_scalar | QUOTEDSTRING | NULL | TRUE | FALSE
 ;
 
-num_scalar : MINUS? ( INTEGER | LONGINTEGER | FLOATNUMBER | DOUBLENUMBER )
+num_scalar : MINUS? ( INTEGER | LONGINTEGER | FLOATNUMBER | DOUBLENUMBER | BIGINTEGERNUMBER | BIGDECIMALNUMBER )
 ;
 
 map : ^( MAP_VAL keyvalue* )
@@ -669,6 +692,8 @@ eid : rel_str_op
     | LONG
     | FLOAT
     | DOUBLE
+    | BIGINTEGER
+    | BIGDECIMAL
     | DATETIME
     | CHARARRAY
     | BYTEARRAY

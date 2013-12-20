@@ -5,9 +5,9 @@
  * licenses this file to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
@@ -16,11 +16,12 @@
  */
 package org.apache.pig.backend.hadoop.hbase;
 
-import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
 import java.io.DataOutput;
-import java.io.DataOutputStream;
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.util.ArrayList;
@@ -52,6 +53,7 @@ import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
 import org.apache.hadoop.hbase.filter.FamilyFilter;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.FilterList;
+import org.apache.hadoop.hbase.filter.RegexStringComparator;
 import org.apache.hadoop.hbase.filter.RowFilter;
 import org.apache.hadoop.hbase.filter.WhileMatchFilter;
 import org.apache.hadoop.hbase.filter.QualifierFilter;
@@ -60,7 +62,6 @@ import org.apache.hadoop.hbase.mapreduce.TableInputFormat;
 import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
 import org.apache.hadoop.hbase.mapreduce.TableOutputFormat;
 import org.apache.hadoop.hbase.mapreduce.TableSplit;
-import org.apache.hadoop.hbase.util.Base64;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.mapred.JobConf;
@@ -130,10 +131,10 @@ import com.google.common.collect.Lists;
  * map to a column family name. In the above examples, the <code>friends</code>
  * column family data from <code>SampleTable</code> will be written to a
  * <code>buddies</code> column family in the <code>SampleTableCopy</code> table.
- * 
+ *
  */
 public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPushDown, OrderedLoadFunc {
-    
+
     private static final Log LOG = LogFactory.getLog(HBaseStorage.class);
 
     private final static String STRING_CASTER = "UTF8StorageConverter";
@@ -174,18 +175,20 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
     protected transient byte[] lt_;
     protected transient byte[] lte_;
 
+    private String regex_;
     private LoadCaster caster_;
 
     private ResourceSchema schema_;
     private RequiredFieldList requiredFieldList;
 
-    private static void populateValidOptions() { 
+    private static void populateValidOptions() {
         validOptions_.addOption("loadKey", false, "Load Key");
         validOptions_.addOption("gt", true, "Records must be greater than this value " +
                 "(binary, double-slash-escaped)");
-        validOptions_.addOption("lt", true, "Records must be less than this value (binary, double-slash-escaped)");   
+        validOptions_.addOption("lt", true, "Records must be less than this value (binary, double-slash-escaped)");
         validOptions_.addOption("gte", true, "Records must be greater than or equal to this value");
         validOptions_.addOption("lte", true, "Records must be less than or equal to this value");
+        validOptions_.addOption("regex", true, "Record must match this regular expression");
         validOptions_.addOption("caching", true, "Number of rows scanners should cache");
         validOptions_.addOption("limit", true, "Per-region limit");
         validOptions_.addOption("delim", true, "Column delimiter");
@@ -202,7 +205,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
     /**
      * Constructor. Construct a HBase Table LoadFunc and StoreFunc to load or store the cells of the
      * provided columns.
-     * 
+     *
      * @param columnList
      *        columnlist that is a presented string delimited by space and/or
      *        commas. To retreive all columns in a column family <code>Foo</code>,
@@ -215,21 +218,22 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
      *        family is specified.
      *
      * @throws ParseException when unable to parse arguments
-     * @throws IOException 
+     * @throws IOException
      */
     public HBaseStorage(String columnList) throws ParseException, IOException {
         this(columnList,"");
     }
 
     /**
-     * Constructor. Construct a HBase Table LoadFunc and StoreFunc to load or store. 
+     * Constructor. Construct a HBase Table LoadFunc and StoreFunc to load or store.
      * @param columnList
      * @param optString Loader options. Known options:<ul>
      * <li>-loadKey=(true|false)  Load the row key as the first column
      * <li>-gt=minKeyVal
-     * <li>-lt=maxKeyVal 
+     * <li>-lt=maxKeyVal
      * <li>-gte=minKeyVal
      * <li>-lte=maxKeyVal
+     * <li>-regex=match regex on KeyVal
      * <li>-limit=numRowsPerRegion max number of rows to retrieve per region
      * <li>-delim=char delimiter to use when parsing column names (default is space or comma)
      * <li>-ignoreWhitespace=(true|false) ignore spaces when parsing column names (default true)
@@ -242,8 +246,8 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
      * To be used with extreme caution, since this could result in data loss
      * (see http://hbase.apache.org/book.html#perf.hbase.client.putwal).
      * </ul>
-     * @throws ParseException 
-     * @throws IOException 
+     * @throws ParseException
+     * @throws IOException
      */
     public HBaseStorage(String columnList, String optString) throws ParseException, IOException {
         populateValidOptions();
@@ -252,7 +256,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
             configuredOptions_ = parser_.parse(validOptions_, optsArr);
         } catch (ParseException e) {
             HelpFormatter formatter = new HelpFormatter();
-            formatter.printHelp( "[-loadKey] [-gt] [-gte] [-lt] [-lte] [-columnPrefix] [-caching] [-caster] [-noWAL] [-limit] [-delim] [-ignoreWhitespace] [-minTimestamp] [-maxTimestamp] [-timestamp]", validOptions_ );
+            formatter.printHelp( "[-loadKey] [-gt] [-gte] [-lt] [-lte] [-regex] [-columnPrefix] [-caching] [-caster] [-noWAL] [-limit] [-delim] [-ignoreWhitespace] [-minTimestamp] [-maxTimestamp] [-timestamp]", validOptions_ );
             throw e;
         }
 
@@ -295,13 +299,13 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
         caching_ = Integer.valueOf(configuredOptions_.getOptionValue("caching", "100"));
         limit_ = Long.valueOf(configuredOptions_.getOptionValue("limit", "-1"));
         noWAL_ = configuredOptions_.hasOption("noWAL");
-        
+
         if (configuredOptions_.hasOption("minTimestamp")){
             minTimestamp_ = Long.parseLong(configuredOptions_.getOptionValue("minTimestamp"));
         } else {
-            minTimestamp_ = Long.MIN_VALUE;
+            minTimestamp_ = 0;
         }
-        
+
         if (configuredOptions_.hasOption("maxTimestamp")){
             maxTimestamp_ = Long.parseLong(configuredOptions_.getOptionValue("maxTimestamp"));
         } else {
@@ -313,7 +317,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
         } else {
             timestamp_ = 0;
         }
-        
+
         initScan();
     }
 
@@ -408,6 +412,10 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
             // setStopRow call will limit the number of regions we need to scan
             addFilter(new WhileMatchFilter(new RowFilter(CompareOp.LESS_OR_EQUAL, new BinaryComparator(lte_))));
         }
+        if (configuredOptions_.hasOption("regex")) {
+            regex_ = Utils.slashisize(configuredOptions_.getOptionValue("regex"));
+            addFilter(new RowFilter(CompareOp.EQUAL, new RegexStringComparator(regex_)));
+        }
         if (configuredOptions_.hasOption("minTimestamp") || configuredOptions_.hasOption("maxTimestamp")){
             scan.setTimeRange(minTimestamp_, maxTimestamp_);
         }
@@ -438,21 +446,33 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
      * addFamily on the scan
      */
     private void addFiltersWithoutColumnPrefix(List<ColumnInfo> columnInfos) {
-        for (ColumnInfo columnInfo : columnInfos) {
-            if (columnInfo.columnName != null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Adding column to scan via addColumn with cf:name = " +
-                            Bytes.toString(columnInfo.getColumnFamily()) + ":" +
-                            Bytes.toString(columnInfo.getColumnName()));
+        // Need to check for mixed types in a family, so we don't call addColumn
+        // after addFamily on the same family
+        Map<String, List<ColumnInfo>> groupedMap = groupByFamily(columnInfos);
+        for (Entry<String, List<ColumnInfo>> entrySet : groupedMap.entrySet()) {
+            boolean onlyColumns = true;
+            for (ColumnInfo columnInfo : entrySet.getValue()) {
+                if (columnInfo.isColumnMap()) {
+                    onlyColumns = false;
+                    break;
                 }
-                scan.addColumn(columnInfo.getColumnFamily(), columnInfo.getColumnName());
             }
-            else {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Adding column family to scan via addFamily with cf:name = " +
-                            Bytes.toString(columnInfo.getColumnFamily()));
+            if (onlyColumns) {
+                for (ColumnInfo columnInfo : entrySet.getValue()) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Adding column to scan via addColumn with cf:name = "
+                                + Bytes.toString(columnInfo.getColumnFamily()) + ":"
+                                + Bytes.toString(columnInfo.getColumnName()));
+                    }
+                    scan.addColumn(columnInfo.getColumnFamily(), columnInfo.getColumnName());
                 }
-                scan.addFamily(columnInfo.getColumnFamily());
+            } else {
+                String family = entrySet.getKey();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Adding column family to scan via addFamily with cf:name = "
+                            + family);
+                }
+                scan.addFamily(Bytes.toBytes(family));
             }
         }
     }
@@ -653,7 +673,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
     }
 
     @Override
-    public InputFormat getInputFormat() {      
+    public InputFormat getInputFormat() {
         TableInputFormat inputFormat = new HBaseTableIFBuilder()
         .withLimit(limit_)
         .withGt(gt_)
@@ -662,6 +682,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
         .withLte(lte_)
         .withConf(m_conf)
         .build();
+        inputFormat.setScan(scan);
         return inputFormat;
     }
 
@@ -680,7 +701,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
         Properties udfProps = getUDFProperties();
         job.getConfiguration().setBoolean("pig.noSplitCombination", true);
 
-        initialiseHBaseClassLoaderResources(job);
+        initializeHBaseClassLoaderResources(job);
         m_conf = initializeLocalJobConfig(job);
         String delegationTokenSet = udfProps.getProperty(HBASE_TOKEN_SET);
         if (delegationTokenSet == null) {
@@ -700,33 +721,59 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
             // update columnInfo_
             pushProjection((RequiredFieldList) ObjectSerializer.deserialize(projectedFields));
         }
+        addFiltersWithoutColumnPrefix(columnInfo_);
 
-        for (ColumnInfo columnInfo : columnInfo_) {
-            // do we have a column family, or a column?
-            if (columnInfo.isColumnMap()) {
-                scan.addFamily(columnInfo.getColumnFamily());
-            }
-            else {
-                scan.addColumn(columnInfo.getColumnFamily(),
-                               columnInfo.getColumnName());
-            }
-
-        }
         if (requiredFieldList != null) {
             Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass(),
                     new String[] {contextSignature});
             p.setProperty(contextSignature + "_projectedFields", ObjectSerializer.serialize(requiredFieldList));
         }
-        m_conf.set(TableInputFormat.SCAN, convertScanToString(scan));
     }
 
-    private void initialiseHBaseClassLoaderResources(Job job) throws IOException {
+    private void initializeHBaseClassLoaderResources(Job job) throws IOException {
+        // Depend on HBase to do the right thing when available, as of HBASE-9165
+        try {
+            Method addHBaseDependencyJars =
+              TableMapReduceUtil.class.getMethod("addHBaseDependencyJars", Configuration.class);
+            if (addHBaseDependencyJars != null) {
+                addHBaseDependencyJars.invoke(null, job.getConfiguration());
+                return;
+            }
+        } catch (NoSuchMethodException e) {
+            LOG.debug("TableMapReduceUtils#addHBaseDependencyJars not available."
+              + " Falling back to previous logic.", e);
+        } catch (IllegalAccessException e) {
+            LOG.debug("TableMapReduceUtils#addHBaseDependencyJars invocation"
+              + " not permitted. Falling back to previous logic.", e);
+        } catch (InvocationTargetException e) {
+            LOG.debug("TableMapReduceUtils#addHBaseDependencyJars invocation"
+              + " failed. Falling back to previous logic.", e);
+        }
+        // fall back to manual class handling.
         // Make sure the HBase, ZooKeeper, and Guava jars get shipped.
         TableMapReduceUtil.addDependencyJars(job.getConfiguration(),
-            org.apache.hadoop.hbase.client.HTable.class,
-            com.google.common.collect.Lists.class,
-            org.apache.zookeeper.ZooKeeper.class);
+            org.apache.hadoop.hbase.client.HTable.class, // main hbase jar or hbase-client
+            org.apache.hadoop.hbase.mapreduce.TableSplit.class, // main hbase jar or hbase-server
+            com.google.common.collect.Lists.class, // guava
+            org.apache.zookeeper.ZooKeeper.class); // zookeeper
+        // Additional jars that are specific to v0.95.0+
+        addClassToJobIfExists(job, "org.cloudera.htrace.Trace"); // htrace
+        addClassToJobIfExists(job, "org.apache.hadoop.hbase.protobuf.generated.HBaseProtos"); // hbase-protocol
+        addClassToJobIfExists(job, "org.apache.hadoop.hbase.TableName"); // hbase-common
+        addClassToJobIfExists(job, "org.apache.hadoop.hbase.CompatibilityFactory"); // hbase-hadoop-compar
+        addClassToJobIfExists(job, "org.jboss.netty.channel.ChannelFactory"); // netty
+    }
 
+    private void addClassToJobIfExists(Job job, String className) throws IOException {
+      Class klass = null;
+      try {
+          klass = Class.forName(className);
+      } catch (ClassNotFoundException e) {
+          LOG.debug("Skipping adding jar for class: " + className);
+          return;
+      }
+
+      TableMapReduceUtil.addDependencyJars(job.getConfiguration(), klass);
     }
 
     private JobConf initializeLocalJobConfig(Job job) {
@@ -766,17 +813,24 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
         }
 
         if ("kerberos".equalsIgnoreCase(hbaseConf.get(HBASE_SECURITY_CONF_KEY))) {
+            // Will not be entering this block for 0.20.2 as it has no security.
             try {
                 // getCurrentUser method is not public in 0.20.2
                 Method m1 = UserGroupInformation.class.getMethod("getCurrentUser");
                 UserGroupInformation currentUser = (UserGroupInformation) m1.invoke(null,(Object[]) null);
-                // Class and method are available only from 0.92 security release
-                Class tokenUtilClass = Class
-                        .forName("org.apache.hadoop.hbase.security.token.TokenUtil");
-                Method m2 = tokenUtilClass.getMethod("obtainTokenForJob",
-                        new Class[] { Configuration.class, UserGroupInformation.class, Job.class });
-                m2.invoke(null,
-                        new Object[] { hbaseConf, currentUser, job });
+                // hasKerberosCredentials method not available in 0.20.2
+                Method m2 = UserGroupInformation.class.getMethod("hasKerberosCredentials");
+                boolean hasKerberosCredentials = (Boolean) m2.invoke(currentUser, (Object[]) null);
+                if (hasKerberosCredentials) {
+                    // Class and method are available only from 0.92 security release
+                    Class tokenUtilClass = Class
+                            .forName("org.apache.hadoop.hbase.security.token.TokenUtil");
+                    Method m3 = tokenUtilClass.getMethod("obtainTokenForJob", new Class[] {
+                            Configuration.class, UserGroupInformation.class, Job.class });
+                    m3.invoke(null, new Object[] { hbaseConf, currentUser, job });
+                } else {
+                    LOG.info("Not fetching hbase delegation token as no Kerberos TGT is available");
+                }
             } catch (ClassNotFoundException cnfe) {
                 throw new RuntimeException("Failure loading TokenUtil class, "
                         + "is secure RPC available?", cnfe);
@@ -795,32 +849,19 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
         return location;
     }
 
-    private static String convertScanToString(Scan scan) {
-        try {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            DataOutputStream dos = new DataOutputStream(out);
-            scan.write(dos);
-            return Base64.encodeBytes(out.toByteArray());
-        } catch (IOException e) {
-            LOG.error(e);
-            return "";
-        }
-
-    }
-
     /**
-     * Set up the caster to use for reading values out of, and writing to, HBase. 
+     * Set up the caster to use for reading values out of, and writing to, HBase.
      */
     @Override
     public LoadCaster getLoadCaster() throws IOException {
         return caster_;
     }
-    
+
     /*
      * StoreFunc Methods
      * @see org.apache.pig.StoreFuncInterface#getOutputFormat()
      */
-    
+
     @Override
     public OutputFormat getOutputFormat() throws IOException {
         if (outputFormat == null) {
@@ -873,7 +914,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
             if (LOG.isDebugEnabled()) {
                 LOG.debug("putNext - tuple: " + i + ", value=" + t.get(i) +
                         ", cf:column=" + columnInfo);
-        }
+            }
 
             if (!columnInfo.isColumnMap()) {
                 put.add(columnInfo.getColumnFamily(), columnInfo.getColumnName(),
@@ -919,7 +960,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
 
         return put;
     }
-    
+
     @SuppressWarnings("unchecked")
     private byte[] objToBytes(Object o, byte type) throws IOException {
         LoadStoreCaster caster = (LoadStoreCaster) caster_;
@@ -932,13 +973,15 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
         case DataType.FLOAT: return caster.toBytes((Float) o);
         case DataType.INTEGER: return caster.toBytes((Integer) o);
         case DataType.LONG: return caster.toBytes((Long) o);
+        case DataType.BIGINTEGER: return caster.toBytes((BigInteger) o);
+        case DataType.BIGDECIMAL: return caster.toBytes((BigDecimal) o);
         case DataType.BOOLEAN: return caster.toBytes((Boolean) o);
         case DataType.DATETIME: return caster.toBytes((DateTime) o);
 
-        // The type conversion here is unchecked. 
+        // The type conversion here is unchecked.
         // Relying on DataType.findType to do the right thing.
         case DataType.MAP: return caster.toBytes((Map<String, Object>) o);
-        
+
         case DataType.NULL: return null;
         case DataType.TUPLE: return caster.toBytes((Tuple) o);
         case DataType.ERROR: throw new IOException("Unable to determine type of " + o.getClass());
@@ -970,7 +1013,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
             schema_ = (ResourceSchema) ObjectSerializer.deserialize(serializedSchema);
         }
 
-        initialiseHBaseClassLoaderResources(job);
+        initializeHBaseClassLoaderResources(job);
         m_conf = initializeLocalJobConfig(job);
         // Not setting a udf property and getting the hbase delegation token
         // only once like in setLocation as setStoreLocation gets different Job
@@ -991,7 +1034,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
     /*
      * LoadPushDown Methods.
      */
-    
+
     @Override
     public List<OperatorSet> getFeatures() {
         return Arrays.asList(LoadPushDown.OperatorSet.PROJECTION);
@@ -1037,8 +1080,8 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
                 ( requiredFields.size() < 1 || requiredFields.get(0).getIndex() != 0)) {
                 loadRowKey_ = false;
             projOffset = 0;
-            }
-        
+        }
+
         for (int i = projOffset; i < requiredFields.size(); i++) {
             int fieldIndex = requiredFields.get(i).getIndex();
             newColumns.add(columnInfo_.get(fieldIndex - colOffset));
@@ -1048,7 +1091,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
             LOG.debug("pushProjection After Projection: loadRowKey is " + loadRowKey_) ;
             for (ColumnInfo colInfo : newColumns) {
                 LOG.debug("pushProjection -- col: " + colInfo);
-        }
+            }
         }
         setColumnInfoList(newColumns);
         return new RequiredFieldResponse(true);
@@ -1063,7 +1106,7 @@ public class HBaseStorage extends LoadFunc implements StoreFuncInterface, LoadPu
             @Override
             public void readFields(DataInput in) throws IOException {
                 tsplit.readFields(in);
-}
+            }
 
             @Override
             public void write(DataOutput out) throws IOException {

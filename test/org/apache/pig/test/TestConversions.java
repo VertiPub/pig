@@ -87,8 +87,8 @@ public class TestConversions {
     public  void testBytesToInteger() throws IOException
     {
         // valid ints
-        String[] a = {"1", "-2345",  "1234567", "1.1", "-23.45", ""};
-        Integer[] ia = {1, -2345, 1234567, 1, -23};
+        String[] a = {"1234 ", " 4321", " 12345 ", "1", "-2345",  "1234567", "1.1", "-23.45", ""};
+        Integer[] ia = {1234, 4321, 12345, 1, -2345, 1234567, 1, -23};
 
         for (int i = 0; i < ia.length; i++) {
             byte[] b = a[i].getBytes();
@@ -96,7 +96,7 @@ public class TestConversions {
         }
 
         // invalid ints
-        a = new String[]{"1234567890123456", "This is an int", ""};
+        a = new String[]{"1234567890123456", "This is an int", "", "   "};
         for (String s : a) {
             byte[] b = s.getBytes();
             Integer i = ps.getLoadCaster().bytesToInteger(b);
@@ -120,7 +120,7 @@ public class TestConversions {
         }
 
         // invalid floats
-        a = new String[]{"1a.1", "23.1234567a890123456",  "This is a float", ""};
+        a = new String[]{"1a.1", "23.1234567a890123456",  "This is a float", "", "  "};
         for (String s : a) {
             byte[] b = s.getBytes();
             Float fl = ps.getLoadCaster().bytesToFloat(b);
@@ -141,7 +141,7 @@ public class TestConversions {
         }
 
         // invalid doubles
-        a = new String[]{"-0x1.1", "-23a.45",  "This is a double", ""};
+        a = new String[]{"-0x1.1", "-23a.45",  "This is a double", "", "   "};
         for (String s : a) {
             byte[] b = s.getBytes();
             Double dl = ps.getLoadCaster().bytesToDouble(b);
@@ -154,9 +154,9 @@ public class TestConversions {
     public  void testBytesToLong() throws IOException
     {
         // valid Longs
-        String[] a = {"1", "-2345",  "123456789012345678", "1.1", "-23.45",
+        String[] a = {"1703598819951657279 ", " 999888123L  ", " 1234 ", " 1234", "1234 ", "1", "-2345",  "123456789012345678", "1.1", "-23.45",
               "21345345", "3422342", ""};
-        Long[] la = {1L, -2345L, 123456789012345678L, 1L, -23L,
+        Long[] la = {1703598819951657279L, 999888123L, 1234L, 1234L, 1234L, 1L, -2345L, 123456789012345678L, 1L, -23L,
              21345345L, 3422342L};
 
         for (int i = 0; i < la.length; i++) {
@@ -165,7 +165,7 @@ public class TestConversions {
         }
 
         // invalid longs
-        a = new String[]{"This is a long", "1.0e1000", ""};
+        a = new String[]{"This is a long", "1.0e1000", "", "    "};
         for (String s : a) {
             byte[] b = s.getBytes();
             Long l = ps.getLoadCaster().bytesToLong(b);
@@ -215,11 +215,12 @@ public class TestConversions {
     @Test
     public  void testBytesToMap() throws IOException
     {
+        ResourceFieldSchema fs = GenRandomData.getRandMapFieldSchema();
 
         for (int i = 0; i < MAX; i++) {
             Map<String, Object>  m = GenRandomData.genRandMap(r,5);
             String expectedMapString = DataType.mapToString(m);
-            Map<String, Object> convertedMap = ps.getLoadCaster().bytesToMap(expectedMapString.getBytes());
+            Map<String, Object> convertedMap = ps.getLoadCaster().bytesToMap(expectedMapString.getBytes(), fs);
             assertTrue(TestHelper.mapEquals(m, convertedMap));
         }
 
@@ -365,29 +366,31 @@ public class TestConversions {
         assertNull(b);
 
         s = "[ab]";
-        Map<String, Object> m = ps.getLoadCaster().bytesToMap(s.getBytes());
+        schema = Utils.getSchemaFromString("m:map[chararray]");
+        rfs = new ResourceSchema(schema).getFields()[0];
+        Map<String, Object> m = ps.getLoadCaster().bytesToMap(s.getBytes(), rfs);
         assertNull(m);
 
         s = "[a#b";
-        m = ps.getLoadCaster().bytesToMap(s.getBytes());
+        m = ps.getLoadCaster().bytesToMap(s.getBytes(), rfs);
         assertNull(m);
 
         s = "[a#]";
-        m = ps.getLoadCaster().bytesToMap(s.getBytes());
+        m = ps.getLoadCaster().bytesToMap(s.getBytes(), rfs);
         Map.Entry<String, Object> entry = m.entrySet().iterator().next();
         assertEquals("a", entry.getKey());
         assertNull(entry.getValue());
 
         s = "[#]";
-        m = ps.getLoadCaster().bytesToMap(s.getBytes());
+        m = ps.getLoadCaster().bytesToMap(s.getBytes(), rfs);
         assertNull(m);
 
         s = "[a#}";
-        m = ps.getLoadCaster().bytesToMap(s.getBytes());
+        m = ps.getLoadCaster().bytesToMap(s.getBytes(), rfs);
         assertNull(m);
 
         s = "[a#)";
-        m = ps.getLoadCaster().bytesToMap(s.getBytes());
+        m = ps.getLoadCaster().bytesToMap(s.getBytes(), rfs);
         assertNull(m);
 
         s = "(a,b)";
@@ -401,7 +404,9 @@ public class TestConversions {
         assertEquals("b", t.get(1).toString());
 
         s = "[a#(1,2,3)]";
-        m = ps.getLoadCaster().bytesToMap(s.getBytes());
+        schema = Utils.getSchemaFromString("m:map[]");
+        rfs = new ResourceSchema(schema).getFields()[0];
+        m = ps.getLoadCaster().bytesToMap(s.getBytes(), rfs);
         entry = m.entrySet().iterator().next();
         assertEquals("a", entry.getKey());
         assertTrue(entry.getValue() instanceof DataByteArray);

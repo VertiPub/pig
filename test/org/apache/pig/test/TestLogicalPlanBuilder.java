@@ -18,12 +18,16 @@
 package org.apache.pig.test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+
+import junit.framework.Assert;
+import junit.framework.AssertionFailedError;
 
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapreduce.InputFormat;
@@ -33,6 +37,7 @@ import org.apache.pig.ExecType;
 import org.apache.pig.FuncSpec;
 import org.apache.pig.LoadCaster;
 import org.apache.pig.LoadFunc;
+import org.apache.pig.PigConfiguration;
 import org.apache.pig.PigException;
 import org.apache.pig.PigServer;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigSplit;
@@ -56,14 +61,13 @@ import org.apache.pig.newplan.logical.relational.LOForEach;
 import org.apache.pig.newplan.logical.relational.LOGenerate;
 import org.apache.pig.newplan.logical.relational.LOLoad;
 import org.apache.pig.newplan.logical.relational.LOSort;
+import org.apache.pig.newplan.logical.relational.LOStore;
 import org.apache.pig.newplan.logical.relational.LogicalPlan;
+import org.apache.pig.newplan.logical.relational.LogicalPlanData;
 import org.apache.pig.newplan.logical.relational.LogicalSchema;
 import org.apache.pig.test.utils.Identity;
 import org.junit.Before;
 import org.junit.Test;
-
-import junit.framework.Assert;
-import junit.framework.AssertionFailedError;
 
 public class TestLogicalPlanBuilder {
     PigContext pigContext = new PigContext(ExecType.LOCAL, new Properties());
@@ -2113,9 +2117,86 @@ public class TestLogicalPlanBuilder {
         }
         Assert.assertEquals("C", pigServer.getPigContext().getLastAlias());
     }
-
-    private void printPlan(LogicalExpressionPlan lp) {
-        System.err.println( lp.toString() );
+    
+    @Test
+    public void testBuildLoadOpWithDefaultFunc() throws Exception {
+        String query = "a = load '1.txt';" +
+                "store a into 'output';";
+        LogicalPlan lp = buildPlan(query);
+        FuncSpec funcSpec = getFirstLoadFuncSpec(lp);
+        assertEquals("org.apache.pig.builtin.PigStorage", funcSpec.getClassName());
+        
+        // set default load func in config
+        pigServer.getPigContext().getProperties().setProperty(PigConfiguration.PIG_DEFAULT_LOAD_FUNC, "org.apache.pig.test.PigStorageWithSchema");
+        query = "a = load '1.txt';" +
+                "store a into 'output';";
+        lp = buildPlan(query);
+        funcSpec = getFirstLoadFuncSpec(lp);
+        assertEquals("org.apache.pig.test.PigStorageWithSchema", funcSpec.getClassName());    
+        
+        // unset default load func
+        pigServer.getPigContext().getProperties().remove(PigConfiguration.PIG_DEFAULT_LOAD_FUNC);      
+    }
+    
+    @Test
+    public void testBuildStoreOpWithDefaultFunc() throws Exception {
+        String query = "a = load '1.txt';" +
+                "store a into 'output';";
+        LogicalPlan lp = buildPlan(query);
+        FuncSpec funcSpec = getFirstStoreFuncSpec(lp);
+        assertEquals("org.apache.pig.builtin.PigStorage", funcSpec.getClassName());
+        
+        // set default load func in config
+        pigServer.getPigContext().getProperties().setProperty(PigConfiguration.PIG_DEFAULT_STORE_FUNC, "org.apache.pig.test.PigStorageWithSchema");
+        query = "a = load '1.txt';" +
+                "store a into 'output';";
+        lp = buildPlan(query);
+        funcSpec = getFirstStoreFuncSpec(lp);
+        assertEquals("org.apache.pig.test.PigStorageWithSchema", funcSpec.getClassName());    
+        
+        // unset default load func
+        pigServer.getPigContext().getProperties().remove(PigConfiguration.PIG_DEFAULT_STORE_FUNC);      
+    }
+    
+    @Test
+    public void testLogicalPlanData() throws Exception {
+        String query = "a = load 'input.txt'; b = load 'anotherinput.txt'; c = join a by $0, b by $1;" +
+                "store c into 'output' using org.apache.pig.test.PigStorageWithSchema();";
+        // Set batch on so the query is not executed
+        pigServer.setBatchOn();
+        pigServer.registerQuery(query);
+        LogicalPlanData lData = pigServer.getLogicalPlanData();
+        assertEquals("LoadFunc must be PigStorage", "org.apache.pig.builtin.PigStorage", lData.getLoadFuncs().get(0));
+        assertEquals("StoreFunc must be PigStorageWithSchema", "org.apache.pig.test.PigStorageWithSchema", lData.getStoreFuncs().get(0));
+        assertEquals("Number of sources must be 2", lData.getSources().size(), 2);
+        assertTrue("Source must end with input.txt", lData.getSources().get(0).endsWith("input.txt"));
+        assertTrue("Sink must end with output", lData.getSinks().get(0).endsWith("output"));
+    }
+    
+    /**
+     * This method is not generic. Expects logical plan to have atleast
+     * 1 source and returns the corresponding FuncSpec.
+     * Specific to {@link #testBuildLoadOpWithDefaultFunc()}.
+     * 
+     * @param lp LogicalPlan
+     * @return FuncSpec associated with 1st source
+     */
+    private FuncSpec getFirstLoadFuncSpec(LogicalPlan lp) {
+        List<Operator> sources = lp.getSources();
+        return ((LOLoad)sources.get(0)).getFileSpec().getFuncSpec();
+    }
+    
+    /**
+     * This method is not generic. Expects logical plan to have atleast
+     * 1 sink and returns the corresponding FuncSpec
+     * Specific to {@link #testBuildStoreOpWithDefaultFunc()}.
+     * 
+     * @param lp LogicalPlan
+     * @return FuncSpec associated with 1st sink
+     */
+    private FuncSpec getFirstStoreFuncSpec(LogicalPlan lp) {
+        List<Operator> sinks = lp.getSinks();
+        return ((LOStore)sinks.get(0)).getFileSpec().getFuncSpec();
     }
 
     private boolean checkPlanForProjectStar(LogicalExpressionPlan lp) {

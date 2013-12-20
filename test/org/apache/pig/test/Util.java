@@ -66,6 +66,7 @@ import org.apache.pig.ResourceSchema.ResourceFieldSchema;
 import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.backend.hadoop.datastorage.ConfigurationUtil;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.MRCompiler;
+import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.MRExecutionEngine;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.MapReduceLauncher;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.plans.MROperPlan;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.plans.PhysicalPlan;
@@ -277,6 +278,19 @@ public class Util {
     }
 
     /**
+     * Helper to convert \r\n to \n for cross-platform string
+     * matching with checked-in baselines.
+     *
+     * @param origPath original string
+     * @return String  newline-standardized string
+     * @throws IOException
+     */
+    static public String standardizeNewline(String origPath)
+    {
+       return origPath.replaceAll("\r\n", "\n");
+    }
+
+    /**
      * Helper to create a temporary file with given input data for use in test cases.
      *
      * @param tmpFilenamePrefix file-name prefix
@@ -309,7 +323,8 @@ public class Util {
 	    PrintWriter pw = new PrintWriter(new OutputStreamWriter(new
 	            FileOutputStream(f), "UTF-8"));
         for (int i=0; i<inputData.length; i++){
-            pw.println(inputData[i]);
+            pw.print(inputData[i]);
+            pw.print("\n");
         }
         pw.close();
 	}
@@ -333,19 +348,26 @@ public class Util {
 
     static public void createInputFile(FileSystem fs, String fileName,
             String[] inputData) throws IOException {
+        if(Util.WINDOWS){
+            fileName = fileName.replace('\\','/');
+        }
         if(fs.exists(new Path(fileName))) {
             throw new IOException("File " + fileName + " already exists on the FileSystem");
         }
         FSDataOutputStream stream = fs.create(new Path(fileName));
         PrintWriter pw = new PrintWriter(new OutputStreamWriter(stream, "UTF-8"));
         for (int i=0; i<inputData.length; i++){
-            pw.println(inputData[i]);
+            pw.print(inputData[i]);
+            pw.print("\n");
         }
         pw.close();
 
     }
 
     static public String[] readOutput(FileSystem fs, String fileName) throws IOException {
+        if(Util.WINDOWS){
+            fileName = fileName.replace('\\','/');
+        }
         Path path = new Path(fileName);
         if(!fs.exists(path)) {
             throw new IOException("Path " + fileName + " does not exist on the FileSystem");
@@ -389,6 +411,9 @@ public class Util {
     static public OutputStream createInputFile(MiniCluster cluster,
             String fileName) throws IOException {
         FileSystem fs = cluster.getFileSystem();
+        if(Util.WINDOWS){
+            fileName = fileName.replace('\\','/');
+        }
         if (fs.exists(new Path(fileName))) {
             throw new IOException("File " + fileName
                     + " already exists on the minicluster");
@@ -422,6 +447,9 @@ public class Util {
     static public void deleteFile(MiniCluster miniCluster, String fileName)
     throws IOException {
         FileSystem fs = miniCluster.getFileSystem();
+        if(Util.WINDOWS){
+            fileName = fileName.replace('\\','/');
+        }
         fs.delete(new Path(fileName), true);
     }
 
@@ -430,6 +458,9 @@ public class Util {
         Configuration conf = ConfigurationUtil.toConfiguration(
                 pigContext.getProperties());
         FileSystem fs = FileSystem.get(conf);
+        if(Util.WINDOWS){
+            fileName = fileName.replace('\\','/');
+        }
         fs.delete(new Path(fileName), true);
     }
 
@@ -438,6 +469,9 @@ public class Util {
         Configuration conf = ConfigurationUtil.toConfiguration(
                 pigContext.getProperties());
         FileSystem fs = FileSystem.get(conf);
+        if(Util.WINDOWS){
+            fileName = fileName.replace('\\','/');
+        }
         return fs.exists(new Path(fileName));
     }
 
@@ -570,6 +604,10 @@ public class Util {
 	 * @throws IOException
 	 */
 	static public void copyFromLocalToCluster(MiniCluster cluster, String localFileName, String fileNameOnCluster) throws IOException {
+        if(Util.WINDOWS){
+            localFileName = localFileName.replace('\\','/');
+            fileNameOnCluster = fileNameOnCluster.replace('\\','/');
+        }
         PigServer ps = new PigServer(ExecType.MAPREDUCE, cluster.getProperties());
         String script = getMkDirCommandForHadoop2_0(fileNameOnCluster) + "fs -put " + localFileName + " " + fileNameOnCluster;
 
@@ -585,6 +623,10 @@ public class Util {
 
     static public void copyFromLocalToLocal(String fromLocalFileName,
             String toLocalFileName) throws IOException {
+        if(Util.WINDOWS){
+            fromLocalFileName = fromLocalFileName.replace('\\','/');
+            toLocalFileName = toLocalFileName.replace('\\','/');
+        }
         PigServer ps = new PigServer(ExecType.LOCAL, new Properties());
         String script = getMkDirCommandForHadoop2_0(toLocalFileName) + "fs -cp " + fromLocalFileName + " " + toLocalFileName;
 
@@ -602,6 +644,10 @@ public class Util {
     }
 
 	static public void copyFromClusterToLocal(MiniCluster cluster, String fileNameOnCluster, String localFileName) throws IOException {
+        if(Util.WINDOWS){
+            fileNameOnCluster = fileNameOnCluster.replace('\\','/');
+            localFileName = localFileName.replace('\\','/');
+        }
 	    File parent = new File(localFileName).getParentFile();
 	    if (!parent.exists()) {
 	        parent.mkdirs();
@@ -662,6 +708,9 @@ public class Util {
 
     public static String generateURI(String filename, PigContext context)
             throws IOException {
+        if(Util.WINDOWS){
+            filename = filename.replace('\\','/');
+        }
         if (context.getExecType() == ExecType.MAPREDUCE) {
             return FileLocalizer.hadoopify(filename, context);
         } else if (context.getExecType() == ExecType.LOCAL) {
@@ -847,8 +896,8 @@ public class Util {
         }
         Process cmdProc = Runtime.getRuntime().exec(cmd);
         ProcessReturnInfo pri = new ProcessReturnInfo();
-        pri.stdoutContents = getContents(cmdProc.getInputStream());
         pri.stderrContents = getContents(cmdProc.getErrorStream());
+        pri.stdoutContents = getContents(cmdProc.getInputStream());
         cmdProc.waitFor();
         pri.exitCode = cmdProc.exitValue();
         return pri;
@@ -1011,12 +1060,9 @@ public class Util {
 
     public static PhysicalPlan buildPp(PigServer pigServer, String query)
     throws Exception {
-    	buildLp( pigServer, query );
-        java.lang.reflect.Method compilePp = pigServer.getClass().getDeclaredMethod("compilePp" );
-        compilePp.setAccessible(true);
-
-        return (PhysicalPlan)compilePp.invoke( pigServer );
-
+        LogicalPlan lp = buildLp( pigServer, query );
+        return ((MRExecutionEngine)pigServer.getPigContext().getExecutionEngine()).compile(lp, 
+                pigServer.getPigContext().getProperties());
     }
 
     public static LogicalPlan parse(String query, PigContext pc) throws FrontendException {
@@ -1210,7 +1256,7 @@ public class Util {
 
     public static boolean isHadoop2_0() {
         String version = org.apache.hadoop.util.VersionInfo.getVersion();
-        if (version.matches("\\b2\\.0\\..+"))
+        if (version.matches("\\b2\\.\\d\\..+"))
             return true;
         return false;
     }
