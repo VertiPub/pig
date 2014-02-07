@@ -28,6 +28,8 @@ PIG-3529: Upgrade HBase dependency from 0.95-SNAPSHOT to 0.96 (jarcec via daijy)
 
 PIG-3552: UriUtil used by reducer estimator should support viewfs (amatsukawa via aniket486)
 
+PIG-3606: Pig script throws error when searching for hcatalog jars in latest hive
+
 PIG-3549: Print hadoop jobids for failed, killed job (aniket486)
 
 PIG-3047: Check the size of a relation before adding it to distributed cache in Replicated join (aniket486)
