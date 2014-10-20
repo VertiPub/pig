@@ -1014,11 +1014,13 @@
             <fileset dir="${ivy.lib.dir}" includes="json-simple-*.jar"/>
         </copy>
 
-        <!-- NOTE change in jar name for backcompat-h2 cases -->
+        <!-- NOTE additional jar made without appended 'h2' -->
         <copy file="${output.jarfile.backcompat.withouthadoop-h1}" tofile="${tar.dist.dir}/${final.name}-withouthadoop-h1.jar" failonerror="false"/>
+        <copy file="${output.jarfile.backcompat.withouthadoop-h2}" tofile="${tar.dist.dir}/${final.name}-withouthadoop-h2.jar" failonerror="false"/>
         <copy file="${output.jarfile.backcompat.withouthadoop-h2}" tofile="${tar.dist.dir}/${final.name}-withouthadoop.jar" failonerror="false"/>
 
         <copy file="${output.jarfile.backcompat-h1}" tofile="${tar.dist.dir}/${final.name}-h1.jar" failonerror="false"/>
+        <copy file="${output.jarfile.backcompat-h2}" tofile="${tar.dist.dir}/${final.name}-h2.jar" failonerror="false"/>
         <copy file="${output.jarfile.backcompat-h2}" tofile="${tar.dist.dir}/${final.name}.jar" failonerror="false"/>
 
         <copy todir="${tar.dist.dir}/lib" file="contrib/piggybank/java/piggybank.jar"/>
