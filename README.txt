@@ -1,3 +1,5 @@
+# This repository has been archived.
+
 Apache Pig
 ===========
 Pig is a dataflow programming environment for processing very large files. Pig's
